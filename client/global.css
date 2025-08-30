@@ -1,0 +1,103 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Tailwind CSS theme
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+   * A different format will require also updating the theme in tailwind.config.ts.
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 210 17% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 17% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 17% 15%;
+
+    --primary: 244 62% 32%;  /* venue-indigo #3C3B6E */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 246 100% 95%;  /* light venue-lavender */
+    --secondary-foreground: 244 62% 32%;
+
+    --muted: 246 100% 95%;
+    --muted-foreground: 210 17% 45%;
+
+    --accent: 246 100% 69%;  /* venue-purple #6C63FF */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 246 100% 90%;
+    --input: 246 100% 90%;
+    --ring: 246 100% 69%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 210 17% 15%;
+    --sidebar-primary: 244 62% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 246 100% 95%;
+    --sidebar-accent-foreground: 244 62% 32%;
+    --sidebar-border: 246 100% 90%;
+    --sidebar-ring: 246 100% 69%;
+  }
+
+  .dark {
+    --background: 230 21% 11%;  /* venue-dark #1F1F2E */
+    --foreground: 0 0% 100%;
+
+    --card: 230 21% 15%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 230 21% 15%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 246 100% 69%;  /* venue-purple #6C63FF */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 230 21% 20%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 230 21% 20%;
+    --muted-foreground: 230 7% 65%;
+
+    --accent: 244 62% 32%;  /* venue-indigo #3C3B6E */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 230 21% 25%;
+    --input: 230 21% 25%;
+    --ring: 246 100% 69%;
+
+    --sidebar-background: 230 21% 11%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 246 100% 69%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 21% 20%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 230 21% 25%;
+    --sidebar-ring: 246 100% 69%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-poppins;
+  }
+}
