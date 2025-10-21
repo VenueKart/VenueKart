@@ -1,4 +1,3 @@
-
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
@@ -100,4 +99,32 @@
   body {
     @apply bg-background text-foreground font-poppins;
   }
+
+  /* Prevent duplicate password reveal icons (Edge/IE) */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+/* Home page hero background image */
+.home-hero-image {
+  background-image: url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&h=800&fit=crop');
+}
+
+/* About page hero background image */
+.about-hero-image {
+  background-image: url('https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1200&h=800&fit=crop');
+}
+
+/* Contact page hero background image */
+.contact-hero-image {
+  background-image: url('https://images.unsplash.com/photo-1423666639041-f56000c27a9a?w=1200&h=800&fit=crop');
+}
+
+/* Developers page hero background image */
+.developers-hero-image {
+  background-image: url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1200&h=800&fit=crop');
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,11 +12,11 @@ import venueService from '../services/venueService';
 import apiClient from '../lib/apiClient';
 import { getUserFriendlyError } from '../lib/errorMessages';
 import { formatPrice } from '@/lib/priceUtils';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   Building,
   Home,
   Calendar,
-  BarChart3,
   Settings,
   LogOut,
   Menu,
@@ -29,6 +29,13 @@ import {
   Bell,
   Loader2
 } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
 
 // API service functions using the new apiClient
 const apiCall = async (url, options = {}) => {
@@ -61,13 +68,29 @@ export default function AdminDashboard() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [inquiries, setInquiries] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: '',
+    description: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null,
+  });
+  const openConfirm = (config) => setConfirmDialog({
+    open: true,
+    title: '',
+    description: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null,
+    ...config,
+  });
   const navigate = useNavigate();
-  const location = useLocation();
   const { user, logout, isVenueOwner } = useAuth();
 
   useEffect(() => {
-    // Check if user is authenticated as venue owner
-    if (!user || !isVenueOwner()) {
+    // Check if user is authenticated as venue owner or admin
+    if (!user || (!isVenueOwner() && user?.userType !== 'admin')) {
       navigate('/signin');
     } else {
       loadDashboardData();
@@ -76,7 +99,7 @@ export default function AdminDashboard() {
 
   // Real-time updates with dynamic polling
   useEffect(() => {
-    if (user && isVenueOwner()) {
+    if (user && (isVenueOwner() || user?.userType === 'admin')) {
       let interval;
 
       const setupPolling = () => {
@@ -146,7 +169,8 @@ export default function AdminDashboard() {
   const loadInquiries = async () => {
     try {
       const data = await apiCall('/api/bookings/owner/inquiries');
-      setInquiries(data);
+      const normalized = Array.isArray(data) ? data.map(i => ({ ...i, id: i.id || i._id })) : [];
+      setInquiries(normalized);
     } catch (error) {
       console.error('Error loading inquiries:', error);
     }
@@ -155,7 +179,8 @@ export default function AdminDashboard() {
   const loadVenues = async () => {
     try {
       const data = await apiCall('/api/venues/owner/my-venues');
-      setVenues(data);
+      const normalized = Array.isArray(data) ? data.map(v => ({ ...v, id: v.id || v._id })) : [];
+      setVenues(normalized);
     } catch (error) {
       console.error('Error loading venues:', error);
     }
@@ -164,7 +189,8 @@ export default function AdminDashboard() {
   const loadBookings = async () => {
     try {
       const data = await apiCall('/api/bookings/owner?limit=10');
-      setBookings(data);
+      const normalized = Array.isArray(data) ? data.map(b => ({ ...b, id: b.id || b._id })) : [];
+      setBookings(normalized);
     } catch (error) {
       console.error('Error loading bookings:', error);
     }
@@ -300,7 +326,7 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="space-y-3">
               {bookings.filter(b => b.status === 'pending').slice(0, 3).map((inquiry) => (
-                <div key={inquiry.id} className="flex items-center justify-between p-4 bg-white border border-yellow-200 rounded-lg hover:border-yellow-300 transition-colors">
+                <div key={inquiry.id || inquiry._id} className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-4 bg-white border border-yellow-200 rounded-lg hover:border-yellow-300 transition-colors">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-8 h-8 bg-gradient-to-r from-venue-indigo to-venue-purple rounded-full flex items-center justify-center text-white text-xs font-bold">
@@ -311,12 +337,12 @@ export default function AdminDashboard() {
                     </div>
                     <p className="text-sm text-gray-600 ml-10">{inquiry.venue_name} • {new Date(inquiry.event_date).toLocaleDateString()} • {inquiry.guest_count} guests</p>
                   </div>
-                  <div className="text-right">
+                  <div className="md:text-right">
                     <p className="font-semibold text-venue-dark mb-2">{formatPrice(inquiry.amount)}</p>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 md:flex md:grid-cols-none">
                       <Button
                         size="sm"
-                        className="bg-venue-purple hover:bg-venue-indigo text-white"
+                        className="bg-venue-purple hover:bg-venue-indigo text-white w-full md:w-auto justify-center"
                         onClick={() => handleBookingAction(inquiry.id, 'confirmed')}
                       >
                         Accept
@@ -325,6 +351,7 @@ export default function AdminDashboard() {
                         size="sm"
                         variant="destructive"
                         onClick={() => handleBookingAction(inquiry.id, 'cancelled')}
+                        className="w-full md:w-auto justify-center"
                       >
                         Decline
                       </Button>
@@ -363,12 +390,12 @@ export default function AdminDashboard() {
               <div className="text-center py-4 text-gray-500">No confirmed or cancelled bookings yet</div>
             ) : (
               bookings.filter(b => b.status !== 'pending').slice(0, 3).map((booking) => (
-                <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg">
+                <div key={booking.id || booking._id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg">
                   <div>
                     <h4 className="font-semibold text-venue-dark">{booking.customer_name}</h4>
                     <p className="text-sm text-gray-600">{booking.venue_name} • {new Date(booking.event_date).toLocaleDateString()}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="sm:text-right">
                     <p className="font-semibold text-venue-dark">{formatPrice(booking.amount)}</p>
                     <p className={`text-sm ${booking.status === 'confirmed' ? 'text-green-600' : booking.status === 'cancelled' ? 'text-red-600' : 'text-yellow-600'}`}>
                       {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
@@ -385,13 +412,13 @@ export default function AdminDashboard() {
 
   const renderVenues = () => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-col sm:flex-row gap-3 sm:gap-0">
         <div>
           <h1 className="text-3xl font-bold text-venue-dark">Venue Management</h1>
           <p className="text-gray-600">Manage your venue listings and details</p>
         </div>
         <Button
-          className="bg-venue-indigo hover:bg-venue-purple text-white"
+          className="bg-venue-indigo hover:bg-venue-purple text-white w-full sm:w-auto"
           onClick={() => setShowAddVenueForm(true)}
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -399,7 +426,7 @@ export default function AdminDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-start">
         {loading ? (
           <div className="col-span-full text-center py-8 text-gray-500">Loading venues...</div>
         ) : venues.length === 0 ? (
@@ -409,16 +436,16 @@ export default function AdminDashboard() {
           </div>
         ) : (
           venues.map((venue) => (
-            <Card key={venue.id}>
+            <Card key={venue.id || venue._id}>
               <CardContent className="p-6">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                   <img
                     src={venue.images && venue.images.length > 0 ? venue.images[0] : "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=400&h=300&fit=crop"}
                     alt={venue.name}
-                    className="w-24 h-24 object-cover rounded-lg"
+                    className="w-full h-40 sm:w-24 sm:h-24 object-cover rounded-lg"
                   />
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-venue-dark mb-2">{venue.name}</h3>
+                    <h3 className="text-base sm:text-lg font-semibold text-venue-dark mb-2">{venue.name}</h3>
                     <div className="space-y-1 text-sm text-gray-600">
                       <div className="flex items-center">
                         <MapPin className="h-4 w-4 mr-1" />
@@ -437,24 +464,24 @@ export default function AdminDashboard() {
                         {venue.booking_count || 0} bookings
                       </div>
                     </div>
-                    <div className="flex items-center justify-between mt-4">
+                    <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${venue.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                         {venue.status ? venue.status.charAt(0).toUpperCase() + venue.status.slice(1) : 'Active'}
                       </span>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 sm:flex gap-2">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => openEditForm(venue)}
-                          className="border-venue-indigo text-venue-indigo hover:bg-venue-lavender"
+                          className="border-venue-indigo text-black hover:bg-venue-lavender hover:text-black active:text-black focus:text-black w-full sm:w-auto justify-center"
                         >
                           Edit
                         </Button>
                         <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeleteVenue(venue.id, venue.name)}
-                          className="text-red-600 hover:text-white hover:bg-red-600 border-red-300"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteVenue(venue.id || venue._id, venue.name)}
+                          className="text-red-600 hover:text-white hover:bg-red-600 border-red-300 w-full sm:w-auto justify-center"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -472,7 +499,7 @@ export default function AdminDashboard() {
 
   const renderBookings = () => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-col sm:flex-row gap-3 sm:gap-0">
         <div>
           <h1 className="text-3xl font-bold text-venue-dark">Booking Overview</h1>
           <p className="text-gray-600">Track and manage venue bookings</p>
@@ -495,7 +522,7 @@ export default function AdminDashboard() {
           }}
           disabled={loading}
           variant="outline"
-          className="border-venue-indigo text-venue-indigo hover:bg-venue-indigo hover:text-white"
+          className="border-venue-indigo text-venue-indigo hover:bg-venue-indigo hover:text-white w-full sm:w-auto"
         >
           {loading ? (
             <>
@@ -509,12 +536,12 @@ export default function AdminDashboard() {
       </div>
 
       {/* Booking Status Filter */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-4">
         <Button
           variant={!statusFilter || statusFilter === 'all' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter('all')}
-          className={!statusFilter || statusFilter === 'all' ? 'bg-venue-indigo hover:bg-venue-purple text-white' : 'border-venue-indigo text-venue-indigo hover:bg-venue-lavender'}
+          className={`${!statusFilter || statusFilter === 'all' ? 'bg-venue-indigo hover:bg-venue-purple text-white' : 'border-venue-indigo text-venue-indigo hover:bg-venue-lavender'} w-full sm:w-auto`}
         >
           All Bookings ({bookings.length})
         </Button>
@@ -522,7 +549,7 @@ export default function AdminDashboard() {
           variant={statusFilter === 'pending' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter('pending')}
-          className={statusFilter === 'pending' ? 'bg-venue-purple hover:bg-venue-indigo text-white' : 'border-venue-purple text-venue-purple hover:bg-venue-lavender'}
+          className={`${statusFilter === 'pending' ? 'bg-venue-purple hover:bg-venue-indigo text-white' : 'border-venue-purple text-venue-purple hover:bg-venue-lavender'} w-full sm:w-auto`}
         >
           Pending ({bookings.filter(b => b.status === 'pending').length})
         </Button>
@@ -530,7 +557,7 @@ export default function AdminDashboard() {
           variant={statusFilter === 'confirmed' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter('confirmed')}
-          className={statusFilter === 'confirmed' ? 'bg-venue-indigo hover:bg-venue-purple text-white' : 'border-venue-indigo text-venue-indigo hover:bg-venue-lavender'}
+          className={`${statusFilter === 'confirmed' ? 'bg-venue-indigo hover:bg-venue-purple text-white' : 'border-venue-indigo text-venue-indigo hover:bg-venue-lavender'} w-full sm:w-auto`}
         >
           Confirmed ({bookings.filter(b => b.status === 'confirmed').length})
         </Button>
@@ -538,7 +565,7 @@ export default function AdminDashboard() {
           variant={statusFilter === 'cancelled' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter('cancelled')}
-          className={statusFilter === 'cancelled' ? 'bg-venue-dark hover:bg-gray-700 text-white' : 'border-venue-dark text-venue-dark hover:bg-gray-100'}
+          className={`${statusFilter === 'cancelled' ? 'bg-venue-dark hover:bg-gray-700 text-white' : 'border-venue-dark text-venue-dark hover:bg-gray-100'} w-full sm:w-auto`}
         >
           Declined ({bookings.filter(b => b.status === 'cancelled').length})
         </Button>
@@ -550,7 +577,7 @@ export default function AdminDashboard() {
           <CardDescription>Complete timeline of all venue bookings with customer details</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b">
@@ -575,7 +602,7 @@ export default function AdminDashboard() {
                   bookings
                     .filter(booking => !statusFilter || statusFilter === 'all' || booking.status === statusFilter)
                     .map((booking) => (
-                    <tr key={booking.id} className="border-b">
+                    <tr key={booking.id || booking._id} className="border-b">
                       <td className="p-4">
                         <div>
                           <p className="font-medium">{booking.customer_name}</p>
@@ -606,6 +633,42 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+
+          <div className="md:hidden space-y-3 mt-4">
+            {loading ? (
+              <div className="p-4 text-center text-gray-500">Loading bookings...</div>
+            ) : bookings.filter(booking => !statusFilter || statusFilter === 'all' || booking.status === statusFilter).length === 0 ? (
+              <div className="p-4 text-center text-gray-500">No bookings found</div>
+            ) : (
+              bookings
+                .filter(booking => !statusFilter || statusFilter === 'all' || booking.status === statusFilter)
+                .map((booking) => (
+                  <div key={booking.id || booking._id} className="p-4 border rounded-lg bg-white">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-venue-dark">{booking.customer_name}</p>
+                        <p className="text-sm text-gray-600">{booking.venue_name}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
+                        booking.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-700">
+                      <div>📅 {new Date(booking.event_date).toLocaleDateString()}</div>
+                      <div>👥 {booking.guest_count} guests</div>
+                      <div className="col-span-2 font-medium text-venue-dark">{formatPrice(booking.amount)}</div>
+                    </div>
+                    {booking.status !== 'pending' && (
+                      <p className="mt-2 text-xs text-gray-500">Updated {new Date(booking.updated_at).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                ))
+            )}
+          </div>
+
         </CardContent>
       </Card>
     </div>
@@ -885,31 +948,31 @@ export default function AdminDashboard() {
     setShowEditVenueForm(true);
   };
 
-  const handleDeleteVenue = async (venueId, venueName) => {
-    if (!window.confirm(`Are you sure you want to delete "${venueName}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      // Use the proper venueService instead of custom apiCall
-      await venueService.deleteVenue(venueId);
-
-      showSuccess('Venue deleted successfully');
-
-      // Reload venues and stats after successful deletion
-      await loadVenues();
-      await loadDashboardStats();
-    } catch (error) {
-      console.error('Error deleting venue:', error);
-      showError(getUserFriendlyError(error, 'general'));
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteVenue = (venueId, venueName) => {
+    openConfirm({
+      title: 'Delete Venue',
+      description: `Are you sure you want to delete "${venueName}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          await venueService.deleteVenue(venueId);
+          showSuccess('Venue deleted successfully');
+          await loadVenues();
+          await loadDashboardStats();
+        } catch (error) {
+          console.error('Error deleting venue:', error);
+          showError(getUserFriendlyError(error, 'general'));
+        } finally {
+          setLoading(false);
+        }
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+      },
+    });
   };
 
-  const handleBookingAction = async (bookingId, newStatus) => {
+  const handleBookingAction = (bookingId, newStatus) => {
     const actionText = newStatus === 'confirmed' ? 'accept' : 'reject';
     const booking = bookings.find(b => b.id === bookingId);
 
@@ -918,53 +981,44 @@ export default function AdminDashboard() {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to ${actionText} the booking for ${booking.customer_name} at ${booking.venue_name}?`)) {
-      return;
-    }
-
-    // Optimistic update for immediate UI feedback
-    const originalBookings = [...bookings];
-    setBookings(prevBookings =>
-      prevBookings.map(b =>
-        b.id === bookingId ? { ...b, status: newStatus } : b
-      )
-    );
-
-    // Update inquiry count immediately
-    setInquiryCount(prev => Math.max(0, prev - 1));
-
-    try {
-      await apiCall(`/api/bookings/${bookingId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus })
-      });
-
-      // Show detailed success message
-      showSuccess(
-        newStatus === 'confirmed'
-          ? `✅ Booking accepted! ${booking.customer_name} has been notified via email.`
-          : `❌ Booking declined. ${booking.customer_name} has been notified via email.`
-      );
-
-      // Reload data to ensure consistency with server
-      await Promise.all([
-        loadBookings(),
-        loadDashboardStats(),
-        loadInquiryCount()
-      ]);
-
-      // Trigger notification updates for affected customers
-      notificationService.triggerUpdate();
-
-    } catch (error) {
-      console.error(`Error ${actionText}ing booking:`, error);
-
-      // Revert optimistic update on error
-      setBookings(originalBookings);
-      setInquiryCount(prev => prev + 1);
-
-      showError(`Failed to ${actionText} booking. Please try again.`);
-    }
+    openConfirm({
+      title: newStatus === 'confirmed' ? 'Accept Booking' : 'Decline Booking',
+      description: `Are you sure you want to ${actionText} the booking for ${booking.customer_name} at ${booking.venue_name}?`,
+      confirmText: newStatus === 'confirmed' ? 'Accept' : 'Decline',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        const originalBookings = [...bookings];
+        setBookings(prevBookings =>
+          prevBookings.map(b =>
+            b.id === bookingId ? { ...b, status: newStatus } : b
+          )
+        );
+        setInquiryCount(prev => Math.max(0, prev - 1));
+        try {
+          await apiCall(`/api/bookings/${bookingId}/status`, {
+            method: 'PUT',
+            body: JSON.stringify({ status: newStatus })
+          });
+          showSuccess(
+            newStatus === 'confirmed'
+              ? `✅ Booking accepted! ${booking.customer_name} has been notified via email.`
+              : `❌ Booking declined. ${booking.customer_name} has been notified via email.`
+          );
+          await Promise.all([
+            loadBookings(),
+            loadDashboardStats(),
+            loadInquiryCount()
+          ]);
+          notificationService.triggerUpdate();
+        } catch (error) {
+          console.error(`Error ${actionText}ing booking:`, error);
+          setBookings(originalBookings);
+          setInquiryCount(prev => prev + 1);
+          showError(`Failed to ${actionText} booking. Please try again.`);
+        }
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+      },
+    });
   };
 
   const renderContent = () => {
@@ -994,14 +1048,6 @@ export default function AdminDashboard() {
               size="icon"
               onClick={() => navigate('/')}
               title="Close Admin Portal"
-            >
-              <X className="h-6 w-6" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden"
-              onClick={() => setSidebarOpen(false)}
             >
               <X className="h-6 w-6" />
             </Button>
@@ -1059,37 +1105,49 @@ export default function AdminDashboard() {
             <div className="flex items-center space-x-4">
               {/* Enhanced Notification Bell */}
             <div className="relative">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={async () => {
-                  if (!showNotifications) {
-                    await loadInquiries();
-                  }
-                  setShowNotifications(!showNotifications);
-                }}
-                className={`relative transition-all duration-300 ease-in-out transform hover:scale-110 ${
-                  inquiryCount > 0
-                    ? 'text-venue-purple hover:text-venue-indigo hover:bg-venue-lavender/20'
-                    : 'text-gray-500 hover:text-venue-indigo hover:bg-venue-lavender/10'
-                } ${showNotifications ? 'bg-venue-lavender/30 text-venue-indigo' : ''}`}
+              <motion.div
+                whileTap={{ scale: 0.96 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                className="inline-block"
               >
-                <Bell className={`h-5 w-5 transition-all duration-300 ${
-                  inquiryCount > 0 ? 'animate-pulse' : ''
-                }`} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={async () => {
+                    if (!showNotifications) {
+                      await loadInquiries();
+                    }
+                    setShowNotifications(!showNotifications);
+                  }}
+                  className={`relative transition-all duration-300 ease-in-out transform hover:scale-110 ${
+                    inquiryCount > 0
+                      ? 'text-venue-purple hover:text-venue-indigo hover:bg-venue-lavender/20'
+                      : 'text-gray-500 hover:text-venue-indigo hover:bg-venue-lavender/10'
+                  } ${showNotifications ? 'bg-venue-lavender/30 text-venue-indigo' : ''}`}
+                >
+                  <motion.span
+                    whileTap={{ rotate: -8, scale: 0.98 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="inline-flex"
+                  >
+                    <Bell className={`h-5 w-5 transition-all duration-300 ${
+                      inquiryCount > 0 ? 'animate-pulse' : ''
+                    }`} />
+                  </motion.span>
 
-                {/* Enhanced notification badge */}
-                {inquiryCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-medium shadow-lg animate-bounce">
-                    {inquiryCount > 99 ? '99+' : inquiryCount}
-                  </span>
-                )}
+                  {/* Enhanced notification badge */}
+                  {inquiryCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-medium shadow-lg animate-bounce">
+                      {inquiryCount > 99 ? '99+' : inquiryCount}
+                    </span>
+                  )}
 
-                {/* Pulse effect for new notifications */}
-                {inquiryCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-400 rounded-full h-5 w-5 animate-ping opacity-75"></span>
-                )}
-              </Button>
+                  {/* Pulse effect for new notifications */}
+                  {inquiryCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-400 rounded-full h-5 w-5 animate-ping opacity-75"></span>
+                  )}
+                </Button>
+              </motion.div>
 
               {/* Enhanced Notifications Dropdown - Sticky & Responsive */}
               {showNotifications && (
@@ -1121,7 +1179,7 @@ export default function AdminDashboard() {
                     ) : (
                       inquiries.slice(0, 6).map((inquiry, index) => (
                         <div
-                          key={inquiry.id}
+                          key={inquiry.id || inquiry._id}
                           className="p-4 border-b border-gray-100 hover:bg-gradient-to-r hover:from-venue-lavender/20 hover:to-venue-lavender/10 transition-all duration-200 cursor-pointer group"
                           onClick={() => {
                             setActiveSection('bookings');
@@ -1198,7 +1256,15 @@ export default function AdminDashboard() {
 
         {/* Page Content */}
         <main className="p-6">
-          {renderContent()}
+          <motion.div
+            key={activeSection}
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            transition={transition}
+          >
+            {renderContent()}
+          </motion.div>
         </main>
       </div>
 
@@ -1282,6 +1348,19 @@ export default function AdminDashboard() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        onConfirm={async () => {
+          const fn = confirmDialog.onConfirm;
+          if (fn) await fn();
+        }}
+      />
 
       {/* Notification Container */}
       <NotificationContainer

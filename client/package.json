@@ -11,11 +11,12 @@
     ]
   },
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server/dev-server.js\"",
+    "dev": "concurrently \"vite\" \"node ../server/dev-server.js 5001\"",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
-    "build:server": "vite build --config vite.config.server.js",
+    "build:server": "vite build --config ../server/vite.config.server.js",
     "start": "node dist/server/node-build.mjs",
+    "build:export": "npm run build && node scripts/assemble-build.mjs",
     "test": "vitest --run",
     "format.fix": "prettier --write .",
     "dev:client": "vite",
@@ -23,17 +24,12 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "cloudinary": "^2.7.0",
     "dotenv": "^17.2.1",
-    "express": "^4.18.2",
     "express-session": "^1.18.2",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.14.3",
-    "nodemailer": "^7.0.5",
-    "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "razorpay": "^2.9.6",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "framer-motion": "^11.2.12"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -75,6 +71,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.176.0",
+    "@vitejs/plugin-react": "^5.0.4",
     "@vitejs/plugin-react-swc": "^3.8.0",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
@@ -84,7 +81,6 @@
     "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
-    "framer-motion": "^12.6.2",
     "globals": "^15.9.0",
     "input-otp": "^1.2.4",
     "lucide-react": "^0.462.0",

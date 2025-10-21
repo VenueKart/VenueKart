@@ -22,6 +22,7 @@ export default function Footer() {
     { name: 'Why VenueKart', href: '/why-venuekart' },
     { name: 'Careers', href: '/careers' },
     { name: 'Blog', href: '/blog' },
+    { name: 'Developers', href: '/developers' },
   ];
 
   const supportHelp = [

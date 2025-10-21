@@ -24,6 +24,13 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
 
 export default function Venues() {
   const [searchParams] = useSearchParams();
@@ -47,7 +54,7 @@ export default function Venues() {
 
   const handleFavoriteClick = async (venueId) => {
     if (!isLoggedIn) {
-      alert('Please sign in to add venues to your favorites');
+      window.dispatchEvent(new CustomEvent('app-error', { detail: { title: 'Sign in required', message: 'Please sign in to add venues to your favorites.' } }));
       return;
     }
     await toggleFavorite(venueId);
@@ -56,24 +63,21 @@ export default function Venues() {
   // Filter states
   const [selectedType, setSelectedType] = useState("");
   const [selectedLocation, setSelectedLocation] = useState("");
-  const [priceRange, setPriceRange] = useState([0, 500000]); // Increased to ₹5 lakh
-  const [capacityRange, setCapacityRange] = useState([0, 5000]); // Increased to 5000 guests
+  const [priceRange, setPriceRange] = useState([0, 500000]);
+  const [capacityRange, setCapacityRange] = useState([0, 5000]);
   const [maxPrice, setMaxPrice] = useState(500000);
   const [maxCapacity, setMaxCapacity] = useState(5000);
   const [searchQuery, setSearchQuery] = useState("");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // Load filter options on component mount
   useEffect(() => {
     loadFilterOptions();
   }, []);
 
-  // Load venues from API when page or filters change
   useEffect(() => {
     loadVenues();
   }, [currentPage, selectedType, selectedLocation, searchQuery]);
 
-  // Initialize filters from URL params
   useEffect(() => {
     const location = searchParams.get('location');
     const venue = searchParams.get('venue');
@@ -86,7 +90,6 @@ export default function Venues() {
       setSearchQuery(venue);
     }
     if (type) {
-      // Convert footer link type to proper venue type format
       const typeMap = {
         'banquet': 'Banquet halls',
         'wedding': 'Wedding Venues',
@@ -105,7 +108,6 @@ export default function Venues() {
       setVenueTypes(options.venueTypes || []);
       setLocations(options.locations || []);
 
-      // Update price and capacity ranges to match actual data
       if (options.priceRange) {
         const roundedMaxPrice = Math.ceil(options.priceRange.max / 10000) * 10000;
         setMaxPrice(roundedMaxPrice);
@@ -121,7 +123,6 @@ export default function Venues() {
       console.log('Loaded filter options:', options);
     } catch (error) {
       console.error('Error loading filter options:', error);
-      // Fallback to default options
       setVenueTypes(VENUE_TYPES);
       setLocations(PUNE_AREAS);
     } finally {
@@ -143,9 +144,8 @@ export default function Venues() {
 
       const response = await venueService.getVenues(filters);
 
-      // Format API venues data
       const apiVenues = response.venues.map(venue => ({
-        id: venue.id,
+        id: venue._id || venue.id,
         name: venue.name,
         location: venue.location,
         capacity: venue.capacity,
@@ -162,7 +162,6 @@ export default function Venues() {
 
     } catch (error) {
       console.error('Error loading venues:', error);
-      // Fallback to demo venues if API fails
       const fallbackVenues = [
         {
           id: 1,
@@ -217,16 +216,13 @@ export default function Venues() {
     }
   };
 
-  // Apply client-side filters (for favorites and price/capacity ranges)
   const getFilteredVenues = () => {
     let filtered = venues;
 
-    // Show favorites only filter (client-side)
     if (showFavoritesOnly) {
       filtered = filtered.filter(venue => isFavorite(venue.id));
     }
 
-    // Price and capacity filters (client-side for now)
     filtered = filtered.filter(venue =>
       venue.price >= priceRange[0] && venue.price <= priceRange[1] &&
       venue.capacity >= capacityRange[0] && venue.capacity <= capacityRange[1]
@@ -237,7 +233,6 @@ export default function Venues() {
 
   const filteredVenues = getFilteredVenues();
 
-  // Reset to first page when filters change
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
@@ -256,14 +251,13 @@ export default function Venues() {
     setSearchQuery("");
     setShowFavoritesOnly(false);
     setCurrentPage(1);
-    // Reload filter options to reset ranges
     loadFilterOptions();
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full px-4 py-8">
-        {/* Header */}
+        {/* Header (instant show) */}
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-venue-dark mb-4">
             Find Your Perfect Venue
@@ -287,7 +281,14 @@ export default function Venues() {
 
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Filters Sidebar */}
-          <div className={`lg:w-72 space-y-6 ${showFilters ? 'block' : 'hidden lg:block'}`}>
+          <motion.div
+            className={`lg:w-72 space-y-6 ${showFilters ? 'block' : 'hidden lg:block'} lg:sticky lg:top-24 lg:self-start`}
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.15 }}
+            transition={transition}
+          >
             <Card className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
@@ -388,7 +389,7 @@ export default function Venues() {
                 </Button>
               </div>
             </Card>
-          </div>
+          </motion.div>
 
           {/* Venue Grid */}
           <div className="flex-1">
@@ -421,7 +422,14 @@ export default function Venues() {
             ) : (
               <>
                 {/* Results Summary */}
-                <div className="flex justify-between items-center mb-6">
+                <motion.div
+                  className="flex justify-between items-center mb-6"
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={transition}
+                >
                   <p className="text-gray-600">
                     Showing {filteredVenues.length} of {pagination.totalCount} venues
                     {showFavoritesOnly || selectedType || selectedLocation || searchQuery || (priceRange[0] > 0) || (capacityRange[0] > 0) ? ' (filtered)' : ''}
@@ -431,85 +439,101 @@ export default function Venues() {
                       Page {pagination.currentPage} of {pagination.totalPages}
                     </div>
                   )}
-                </div>
+                </motion.div>
 
                 {/* Venue Grid - Max 4 cards per row with wider cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-fr mb-8">
-                  {filteredVenues.map((venue) => (
-                    <Card key={venue.id} className="overflow-hidden hover:shadow-xl transition-all duration-300 group flex flex-col h-full w-full">
-                      <div className="relative h-56 overflow-hidden">
-                        <img
-                          src={venue.image}
-                          alt={venue.name}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                        />
-                        <div className="absolute top-4 right-4 flex gap-2">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 bg-white/90 hover:bg-white"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleFavoriteClick(venue.id);
-                            }}
-                          >
-                            <Heart
-                              className={`h-4 w-4 transition-colors ${
-                                isFavorite(venue.id)
-                                  ? 'text-red-500 fill-red-500'
-                                  : 'text-gray-600 hover:text-red-500'
-                              }`}
-                            />
-                          </Button>
-                        </div>
-                        <div className="absolute top-4 left-4">
-                          <Badge variant="secondary" className="bg-venue-indigo text-white">
-                            {venue.type}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      <CardContent className="p-5 flex flex-col flex-1">
-                        <h3 className="text-lg font-semibold text-venue-dark mb-2 group-hover:text-venue-indigo transition-colors line-clamp-1">
-                          {venue.name}
-                        </h3>
-
-                        <div className="flex items-center text-gray-600 mb-3">
-                          <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
-                          <span className="text-sm line-clamp-1">{venue.location}</span>
-                        </div>
-
-                        <div className="flex items-center text-gray-600 mb-4">
-                          <Users className="h-4 w-4 mr-1 flex-shrink-0" />
-                          <span className="text-sm">Up to {venue.capacity} guests</span>
-                        </div>
-
-                        <div className="mt-auto space-y-3">
-                          <div className="text-center">
-                            <span className="text-xl font-bold text-venue-indigo">
-                              {getPricingInfo(venue.price, 'listing').formattedPrice}
-                            </span>
-                            <span className="text-gray-500 text-sm ml-1">/day</span>
+                  {filteredVenues.map((venue, idx) => (
+                    <motion.div
+                      key={venue.id}
+                      variants={fadeUp}
+                      initial="hidden"
+                      whileInView="visible"
+                      viewport={{ once: true, amount: 0.15 }}
+                      transition={{ ...transition, delay: (idx % 4) * 0.05 }}
+                    >
+                      <Card className="overflow-hidden hover:shadow-xl transition-all duration-300 group flex flex-col h-full w-full">
+                        <div className="relative h-56 overflow-hidden">
+                          <img
+                            src={venue.image}
+                            alt={venue.name}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          />
+                          <div className="absolute top-4 right-4 flex gap-2">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 bg-white/90 hover:bg-white"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleFavoriteClick(venue.id);
+                              }}
+                            >
+                              <Heart
+                                className={`h-4 w-4 transition-colors ${
+                                  isFavorite(venue.id)
+                                    ? 'text-red-500 fill-red-500'
+                                    : 'text-gray-600 hover:text-red-500'
+                                }`}
+                              />
+                            </Button>
                           </div>
-                          <Button
-                            asChild
-                            className="w-full bg-venue-indigo hover:bg-venue-purple text-white"
-                            onClick={scrollToTop}
-                          >
-                            <Link to={`/venue/${venue.id}`}>
-                              Book Now
-                            </Link>
-                          </Button>
+                          <div className="absolute top-4 left-4">
+                            <Badge variant="secondary" className="bg-venue-indigo text-white">
+                              {venue.type}
+                            </Badge>
+                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
+
+                        <CardContent className="p-5 flex flex-col flex-1">
+                          <h3 className="text-lg font-semibold text-venue-dark mb-2 group-hover:text-venue-indigo transition-colors line-clamp-1">
+                            {venue.name}
+                          </h3>
+
+                          <div className="flex items-center text-gray-600 mb-3">
+                            <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
+                            <span className="text-sm line-clamp-1">{venue.location}</span>
+                          </div>
+
+                          <div className="flex items-center text-gray-600 mb-4">
+                            <Users className="h-4 w-4 mr-1 flex-shrink-0" />
+                            <span className="text-sm">Up to {venue.capacity} guests</span>
+                          </div>
+
+                          <div className="mt-auto space-y-3">
+                            <div className="text-center">
+                              <span className="text-xl font-bold text-venue-indigo">
+                                {getPricingInfo(venue.price, 'listing').formattedPrice}
+                              </span>
+                              <span className="text-gray-500 text-sm ml-1">/day</span>
+                            </div>
+                            <Button
+                              asChild
+                              className="w-full bg-venue-indigo hover:bg-venue-purple text-white"
+                              onClick={scrollToTop}
+                            >
+                              <Link to={`/venue/${venue.id}`}>
+                                Book Now
+                              </Link>
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   ))}
                 </div>
 
                 {/* Pagination */}
                 {pagination.totalPages > 1 && (
-                  <div className="flex justify-center items-center space-x-2 mt-8">
+                  <motion.div
+                    className="flex justify-center items-center space-x-2 mt-8"
+                    variants={fadeUp}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, amount: 0.15 }}
+                    transition={transition}
+                  >
                     <Button
                       variant="outline"
                       size="sm"
@@ -558,7 +582,7 @@ export default function Venues() {
                       Next
                       <ChevronRight className="h-4 w-4 ml-1" />
                     </Button>
-                  </div>
+                  </motion.div>
                 )}
               </>
             )}

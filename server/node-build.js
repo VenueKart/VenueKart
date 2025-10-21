@@ -1,4 +1,4 @@
-
+import express from "express";
 import { createServer } from "./index.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -19,15 +19,29 @@ function serveStatic(app) {
     return;
   }
 
-  app.use("/assets", (req, res, next) => {
-    res.header("Cache-Control", "public, max-age=31536000, immutable");
-    next();
-  });
+  // Cache immutable build assets aggressively
+  app.use(
+    "/assets",
+    express.static(join(staticDir, "assets"), {
+      immutable: true,
+      maxAge: "31536000s",
+    })
+  );
 
+  // Serve other static files with moderate caching (favicon, manifest, etc.)
+  app.use(
+    express.static(staticDir, {
+      maxAge: "3600s",
+    })
+  );
+
+  // SPA fallback for non-API routes
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/")) {
       return next();
     }
+
+    if (req.method !== "GET") return next();
 
     if (req.path === "/" || !req.path.includes(".")) {
       res.header("Content-Type", "text/html");

@@ -1,8 +1,9 @@
 import * as React from "react"
 
 // Define toast types
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_LIMIT = 3
+const TOAST_REMOVE_DELAY = 400
+const DEFAULT_TOAST_DURATION = 10000
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -110,6 +111,8 @@ function toast({ ...props }) {
     })
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
 
+  const duration = Number.isFinite(props.duration) ? props.duration : DEFAULT_TOAST_DURATION
+
   dispatch({
     type: "ADD_TOAST",
     toast: {
@@ -121,6 +124,13 @@ function toast({ ...props }) {
       },
     },
   })
+
+  // Auto-dismiss after duration
+  if (duration > 0) {
+    setTimeout(() => {
+      dismiss()
+    }, duration)
+  }
 
   return {
     id: id,

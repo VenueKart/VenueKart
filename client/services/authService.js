@@ -1,12 +1,18 @@
-import apiClient from '../lib/apiClient.js';
 import { getUserFriendlyError } from '../lib/errorMessages.js';
+import apiClient from '../lib/apiClient.js';
 
 const API_BASE = '/api/auth';
 
 class AuthService {
   constructor() {
-    this.accessToken = localStorage.getItem('accessToken');
-    this.refreshToken = localStorage.getItem('refreshToken');
+    // Safely access localStorage (iframes or privacy settings can block it)
+    try {
+      this.accessToken = window.localStorage ? localStorage.getItem('accessToken') : null;
+      this.refreshToken = window.localStorage ? localStorage.getItem('refreshToken') : null;
+    } catch (_err) {
+      this.accessToken = null;
+      this.refreshToken = null;
+    }
   }
 
   async login(email, password) {
@@ -71,14 +77,27 @@ class AuthService {
   }
 
   async getCurrentUser() {
-    if (!this.accessToken) {
+    // Re-read latest token to avoid stale constructor value
+    let token = null;
+    try {
+      token = window.localStorage ? localStorage.getItem('accessToken') : this.accessToken;
+    } catch (_err) {
+      token = this.accessToken;
+    }
+    if (!token || token === 'undefined' || token === 'null') {
       return null;
     }
 
     try {
       return await apiClient.getJson(`${API_BASE}/me`);
     } catch (error) {
-      console.error('Get current user error:', error);
+      // On network errors, clear tokens silently to stop repeated failing calls
+      if (String(error.message).toLowerCase().includes('failed to fetch') || String(error.message).toLowerCase().includes('network')) {
+        this.clearTokens();
+        return null;
+      }
+      // For other errors (e.g., 401), also clear tokens
+      this.clearTokens();
       return null;
     }
   }
@@ -116,9 +135,13 @@ class AuthService {
   setTokens(accessToken, refreshToken) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
-    localStorage.setItem('accessToken', accessToken);
-    if (refreshToken) {
-      localStorage.setItem('refreshToken', refreshToken);
+    try {
+      localStorage.setItem('accessToken', accessToken);
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
+    } catch (_err) {
+      // Ignore storage errors in restricted environments
     }
     // Update apiClient tokens as well
     apiClient.setTokens(accessToken, refreshToken);
@@ -127,9 +150,13 @@ class AuthService {
   clearTokens() {
     this.accessToken = null;
     this.refreshToken = null;
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user'); // Clear old user data
+    try {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user'); // Clear old user data
+    } catch (_err) {
+      // Ignore storage errors
+    }
     // Clear apiClient tokens as well
     apiClient.clearTokens();
   }
@@ -142,8 +169,9 @@ class AuthService {
       const left = window.innerWidth / 2 - width / 2;
       const top = window.innerHeight / 2 - height / 2;
 
-      // Include userType as a query parameter
-      const authUrl = `${API_BASE}/google?userType=${encodeURIComponent(userType)}`;
+      // Include userType as a query parameter (always same-origin)
+      // Include the opener origin so the server can postMessage back to the correct origin
+      const authUrl = `${API_BASE}/google?userType=${encodeURIComponent(userType)}&origin=${encodeURIComponent(window.location.origin)}`;
 
       const popup = window.open(
         authUrl,
@@ -160,20 +188,33 @@ class AuthService {
 
       // Listen for messages from popup
       const messageListener = (event) => {
-        // Allow messages from current origin
-        const allowedOrigins = [window.location.origin, `${window.location.protocol}//${window.location.host}`];
-        if (!allowedOrigins.includes(event.origin)) {
-          console.log('Ignored message from:', event.origin);
+        console.log('[authService] message received from', event.origin, event.data);
+        // Allow messages from current origin or known backend origins (localhost:5001, fly.dev, etc.)
+        try {
+          const origin = event.origin || '';
+          const isSameOrigin = origin === window.location.origin || origin === `${window.location.protocol}//${window.location.host}`;
+          const isLocalBackend = origin.includes(':5001');
+          const isFly = origin.endsWith('.fly.dev');
+          const backendEnv = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) ? (import.meta.env.VITE_BACKEND_URL || '') : '';
+          const matchesEnv = backendEnv && origin === backendEnv.replace(/\/+$/, '');
+          if (!(isSameOrigin || isLocalBackend || isFly || matchesEnv)) {
+            console.log('[authService] Ignored message from:', origin);
+            return;
+          }
+        } catch (e) {
+          console.warn('[authService] Error validating message origin:', e);
           return;
         }
 
-        if (event.data.type === 'GOOGLE_AUTH_SUCCESS') {
+        if (event.data && event.data.type === 'GOOGLE_AUTH_SUCCESS') {
+          console.log('[authService] GOOGLE_AUTH_SUCCESS received');
           isResolved = true;
           clearInterval(checkClosed);
           this.setTokens(event.data.accessToken, event.data.refreshToken);
           window.removeEventListener('message', messageListener);
           resolve(event.data);
-        } else if (event.data.type === 'GOOGLE_AUTH_ERROR') {
+        } else if (event.data && event.data.type === 'GOOGLE_AUTH_ERROR') {
+          console.log('[authService] GOOGLE_AUTH_ERROR received', event.data);
           isResolved = true;
           clearInterval(checkClosed);
           window.removeEventListener('message', messageListener);
@@ -186,9 +227,11 @@ class AuthService {
       // Listen for popup to close (fallback) - give some time for message processing
       const checkClosed = setInterval(() => {
         if (popup.closed) {
+          console.log('[authService] popup closed detected');
           // Give a small delay to allow message processing
           setTimeout(() => {
             if (!isResolved) {
+              console.log('[authService] popup closed without resolution - rejecting');
               clearInterval(checkClosed);
               window.removeEventListener('message', messageListener);
               reject(new Error('Authentication cancelled'));

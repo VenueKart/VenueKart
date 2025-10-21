@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+
 import { scrollToTop } from '@/lib/navigation';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import venueService from '../services/venueService';
@@ -28,22 +27,14 @@ import {
   Globe
 } from 'lucide-react';
 
-// API service functions
+import apiClient from '../lib/apiClient.js';
+import { motion } from 'framer-motion';
+
 const apiCall = async (url, options = {}) => {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  });
-
-  if (!response.ok) {
-    const userFriendlyMessage = getUserFriendlyError(`API call failed: ${response.statusText}`, 'general');
-    throw new Error(userFriendlyMessage);
+  if (!options.method || options.method.toUpperCase() === 'GET') {
+    return apiClient.getJson(url, options);
   }
-
-  return response.json();
+  return apiClient.callJson(url, options);
 };
 
 const howItWorks = [
@@ -90,6 +81,12 @@ const features = [
   }
 ];
 
+const transition = { duration: 0.5, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
+
 export default function Index() {
   const [searchLocation, setSearchLocation] = useState('');
   const [searchVenue, setSearchVenue] = useState('');
@@ -103,7 +100,7 @@ export default function Index() {
 
   const handleFavoriteClick = async (venueId) => {
     if (!isLoggedIn) {
-      alert('Please sign in to add venues to your favorites');
+      window.dispatchEvent(new CustomEvent('app-error', { detail: { title: 'Sign in required', message: 'Please sign in to add venues to your favorites.' } }));
       return;
     }
     await toggleFavorite(venueId);
@@ -119,16 +116,14 @@ export default function Index() {
       setLoading(true);
       const data = await apiCall('/api/venues?limit=3');
 
-      // Extract venues array from API response
       const venues = data.venues || data;
 
-      // Format venues data for display
       const formattedVenues = venues.map(venue => {
         const basePrice = parseFloat(venue.price_per_day || venue.price);
         const pricingInfo = getPricingInfo(basePrice, 'listing');
 
         return {
-          id: venue.id,
+          id: venue._id || venue.id,
           name: venue.name,
           location: venue.location,
           capacity: `Up to ${venue.capacity} guests`,
@@ -141,7 +136,6 @@ export default function Index() {
       setPopularVenues(formattedVenues);
     } catch (error) {
       console.error('Error loading popular venues:', error);
-      // Fallback to demo venues if API fails
       const fallbackVenues = [
         {
           id: 1,
@@ -201,44 +195,48 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Hero Section */}
-      <section className="relative h-[70vh] overflow-hidden">
-        {/* Hotel Background Image */}
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{
-            backgroundImage: "url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&h=800&fit=crop')"
-          }}
+      <motion.section
+        className="relative h-[70vh] overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={transition}
+      >
+        <motion.div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat home-hero-image"
+          initial={{ scale: 1.02 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
           <div className="absolute inset-0 bg-black/40"></div>
-        </div>
+        </motion.div>
 
-        {/* Content */}
         <div className="relative h-full flex flex-col justify-center px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto text-center">
             <motion.h1
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
               className="text-4xl md:text-6xl font-bold text-white mb-4 font-poppins"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={transition}
             >
               Find the Perfect Venue for Your Event
             </motion.h1>
             <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4, ease: "easeOut" }}
               className="text-xl text-white/90 mb-8 max-w-3xl mx-auto"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ ...transition, delay: 0.1 }}
             >
               Discover verified venues with transparent pricing
             </motion.p>
 
-            {/* Search Bar */}
             <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.6, ease: "easeOut" }}
               className="max-w-4xl mx-auto"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ ...transition, delay: 0.2 }}
             >
               <form
                 onSubmit={(e) => { e.preventDefault(); handleSearch(); }}
@@ -247,25 +245,25 @@ export default function Index() {
                 <div className="flex flex-col lg:flex-row gap-4 items-center">
                   <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
                     <div className="relative flex-1">
-                      <MapPin className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-venue-indigo" />
+                      <MapPin className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-venue-indigo z-10" />
                       <AutocompleteInput
                         options={filterOptionsLoading ? ['Loading...'] : locations}
                         value={searchLocation}
                         onChange={setSearchLocation}
                         placeholder={filterOptionsLoading ? 'Loading...' : 'Search city or area'}
                         disabled={filterOptionsLoading}
-                        className="pl-12 h-12 border-2 border-gray-200 focus:border-venue-indigo bg-white rounded-xl text-gray-700 placeholder:text-gray-400 font-medium transition-all duration-200 hover:border-venue-purple focus:ring-2 focus:ring-venue-indigo/20"
+                        className="pl-12 h-12 border-2 border-gray-200 focus:border-transparent bg-white rounded-xl text-gray-700 placeholder:text-gray-400 font-medium transition-all duration-200 hover:border-venue-purple focus:ring-2 focus:ring-venue-indigo/20"
                       />
                     </div>
                     <div className="relative flex-1">
-                      <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-venue-indigo" />
+                      <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-venue-indigo z-10" />
                       <AutocompleteInput
                         options={filterOptionsLoading ? ['Loading...'] : venueTypes}
                         value={searchVenue}
                         onChange={setSearchVenue}
                         placeholder={filterOptionsLoading ? 'Loading...' : 'Select venue type'}
                         disabled={filterOptionsLoading}
-                        className="pl-12 h-12 border-2 border-gray-200 focus:border-venue-indigo bg-white rounded-xl text-gray-700 placeholder:text-gray-400 font-medium transition-all duration-200 hover:border-venue-purple focus:ring-2 focus:ring-venue-indigo/20"
+                        className="pl-12 h-12 border-2 border-gray-200 focus:border-transparent bg-white rounded-xl text-gray-700 placeholder:text-gray-400 font-medium transition-all duration-200 hover:border-venue-purple focus:ring-2 focus:ring-venue-indigo/20"
                       />
                     </div>
                   </div>
@@ -281,17 +279,17 @@ export default function Index() {
             </motion.div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
-      {/* Features Section */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            viewport={{ once: true, margin: "-100px" }}
             className="text-center mb-16"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
           >
             <h2 className="text-3xl md:text-4xl font-bold text-venue-dark mb-4">
               Why Choose VenueKart?
@@ -307,18 +305,11 @@ export default function Index() {
               return (
                 <motion.div
                   key={index}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  transition={{
-                    duration: 0.5,
-                    delay: index * 0.1,
-                    ease: "easeOut"
-                  }}
-                  viewport={{ once: true, margin: "-50px" }}
-                  whileHover={{
-                    y: -5,
-                    transition: { duration: 0.2 }
-                  }}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ ...transition, delay: index * 0.05 }}
                 >
                   <Card className="text-center hover:shadow-lg transition-shadow duration-300 h-full">
                     <CardHeader>
@@ -340,15 +331,15 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Popular Venues */}
       <section className="py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            viewport={{ once: true, margin: "-100px" }}
             className="text-center mb-16"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
           >
             <h2 className="text-3xl md:text-4xl font-bold text-venue-dark mb-4">
               Popular Venues
@@ -376,60 +367,69 @@ export default function Index() {
                 <p className="text-gray-400">Check back later for amazing venue listings</p>
               </div>
             ) : (
-              popularVenues.map((venue) => (
-                <Card key={venue.id} className="overflow-hidden hover:shadow-xl transition-shadow duration-300 group">
-                  <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={venue.image}
-                      alt={venue.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                    />
-                    <div className="absolute top-4 right-4">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 bg-white/90 hover:bg-white"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleFavoriteClick(venue.id);
-                        }}
-                      >
-                        <Heart
-                          className={`h-4 w-4 transition-colors ${
-                            isFavorite(venue.id)
-                              ? 'text-red-500 fill-red-500'
-                              : 'text-gray-600 hover:text-red-500'
-                          }`}
-                        />
-                      </Button>
+              popularVenues.map((venue, idx) => (
+                <motion.div
+                  key={venue.id}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ ...transition, delay: idx * 0.05 }}
+                >
+                  <Card className="overflow-hidden hover:shadow-xl transition-shadow duration-300 group transition-transform hover:-translate-y-0.5">
+                    <div className="relative h-48 overflow-hidden">
+                      <img
+                        src={venue.image}
+                        alt={venue.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute top-4 right-4">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 bg-white/90 hover:bg-white"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleFavoriteClick(venue.id);
+                          }}
+                        >
+                          <Heart
+                            className={`h-4 w-4 transition-colors ${
+                              isFavorite(venue.id)
+                                ? 'text-red-500 fill-red-500'
+                                : 'text-gray-600 hover:text-red-500'
+                            }`}
+                          />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <CardContent className="p-6 flex flex-col h-full">
-                    <h3 className="text-xl font-semibold text-venue-dark mb-2">{venue.name}</h3>
-                    <div className="flex items-center text-gray-600 mb-2">
-                      <MapPin className="h-4 w-4 mr-1" />
-                      <span className="text-sm">{venue.location}</span>
-                    </div>
-                    <div className="flex items-center text-gray-600 mb-3">
-                      <Users className="h-4 w-4 mr-1" />
-                      <span className="text-sm">{venue.capacity}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mb-4">
-                      {venue.facilities && venue.facilities.slice(0, 4).map((facility, index) => (
-                        <Badge key={index} variant="secondary" className="text-xs">
-                          {facility}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between mt-auto">
-                      <span className="text-2xl font-bold text-venue-indigo">{venue.price}</span>
-                      <Button asChild className="bg-venue-indigo hover:bg-venue-purple" onClick={scrollToTop}>
-                        <Link to={`/venue/${venue.id}`}>View Details</Link>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                    <CardContent className="p-6 flex flex-col h-full">
+                      <h3 className="text-xl font-semibold text-venue-dark mb-2">{venue.name}</h3>
+                      <div className="flex items-center text-gray-600 mb-2">
+                        <MapPin className="h-4 w-4 mr-1" />
+                        <span className="text-sm">{venue.location}</span>
+                      </div>
+                      <div className="flex items-center text-gray-600 mb-3">
+                        <Users className="h-4 w-4 mr-1" />
+                        <span className="text-sm">{venue.capacity}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mb-4">
+                        {venue.facilities && venue.facilities.slice(0, 4).map((facility, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {facility}
+                          </Badge>
+                        ))}
+                      </div>
+                      <CardFooter className="flex items-center justify-between mt-4 p-0">
+                        <span className="text-2xl font-bold text-venue-indigo">{venue.price || '₹0'}</span>
+                        <Button asChild className="bg-venue-indigo hover:bg-venue-purple" onClick={scrollToTop}>
+                          <Link to={`/venue/${venue.id}`}>View Details</Link>
+                        </Button>
+                      </CardFooter>
+                    </CardContent>
+                  </Card>
+                </motion.div>
               ))
             )}
           </div>
@@ -445,23 +445,37 @@ export default function Index() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+          <motion.div
+            className="text-center mb-16"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
+          >
             <h2 className="text-3xl md:text-4xl font-bold text-venue-dark mb-4">
               How It Works
             </h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               Book your perfect venue in just three simple steps
             </p>
-          </div>
+          </motion.div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {howItWorks.map((step, index) => {
               const Icon = step.icon;
               return (
-                <div key={step.step} className="text-center relative">
+                <motion.div
+                  key={step.step}
+                  className="text-center relative"
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ ...transition, delay: index * 0.05 }}
+                >
                   <div className="relative w-20 h-20 bg-venue-indigo rounded-full flex items-center justify-center mx-auto mb-6">
                     <Icon className="h-10 w-10 text-white" />
                     <div className="absolute -top-2 -right-2 w-8 h-8 bg-venue-purple rounded-full flex items-center justify-center text-white font-bold text-sm border-2 border-white">
@@ -475,7 +489,7 @@ export default function Index() {
                       <ArrowRight className="h-6 w-6 text-venue-purple mx-auto" />
                     </div>
                   )}
-                </div>
+                </motion.div>
               );
             })}
           </div>

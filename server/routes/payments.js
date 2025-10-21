@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import pool from '../config/database.js';
+import mongoose from 'mongoose';
 import { authenticateToken } from '../middleware/auth.js';
+import Booking from '../models/Booking.js';
+import Venue from '../models/Venue.js';
 
 const router = Router();
 
@@ -18,135 +20,98 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
 // Create Razorpay order for booking payment
 router.post('/create-order', authenticateToken, async (req, res) => {
   try {
-    // Check if Razorpay is configured
-    if (!razorpay) {
-      return res.status(503).json({
-        error: 'Payment gateway not configured. Please contact support.'
-      });
-    }
+    if (!razorpay) return res.status(503).json({ error: 'Payment gateway not configured. Please contact support.' });
 
     const { bookingId } = req.body;
     const customerId = req.user.id;
 
-    // Verify booking belongs to user and is confirmed
-    const [bookings] = await pool.execute(`
-      SELECT b.*, v.name as venue_name 
-      FROM bookings b 
-      JOIN venues v ON b.venue_id = v.id
-      WHERE b.id = ? AND b.customer_id = ? AND b.status = 'confirmed'
-    `, [bookingId, customerId]);
-
-    if (bookings.length === 0) {
-      return res.status(404).json({ error: 'Booking not found or not confirmed' });
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ error: 'Invalid booking id' });
     }
 
-    const booking = bookings[0];
+    const booking = await Booking.findOne({ _id: bookingId, customer_id: customerId, status: 'confirmed' }).lean();
+    if (!booking) return res.status(404).json({ error: 'Booking not found or not confirmed' });
 
-    // Check if payment order already exists
-    if (booking.razorpay_order_id) {
-      return res.status(400).json({ error: 'Payment order already exists for this booking' });
+    if (booking.razorpay_order_id) return res.status(400).json({ error: 'Payment order already exists for this booking' });
+
+    let vName = undefined;
+    if (booking.venue_id && mongoose.Types.ObjectId.isValid(booking.venue_id)) {
+      const v = await Venue.findById(booking.venue_id, { name: 1 }).lean();
+      vName = v?.name;
     }
 
-    // Create Razorpay order using payment_amount (base price) instead of total amount
-    const paymentAmount = booking.payment_amount || booking.amount; // Fallback to amount if payment_amount not set
+    const paymentAmount = Number(booking.payment_amount || booking.amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid payment amount for booking' });
+    }
+    const amountPaise = Math.round(paymentAmount * 100);
+    if (!Number.isInteger(amountPaise) || amountPaise < 100) {
+      return res.status(400).json({ error: 'Payment amount must be at least ₹1.00' });
+    }
+
+    const shortId = String(bookingId).slice(-8);
+    const ts = Date.now().toString().slice(-8);
+    const safeReceipt = `b_${shortId}_${ts}`; // <= 40 chars
+
     const orderOptions = {
-      amount: Math.round(paymentAmount * 100), // Convert to paisa
+      amount: amountPaise,
       currency: 'INR',
-      receipt: `booking_${bookingId}_${Date.now()}`,
+      receipt: safeReceipt,
       notes: {
-        booking_id: bookingId,
-        venue_name: booking.venue_name,
-        customer_id: customerId,
-        event_date: booking.event_date,
-        display_amount: booking.amount, // Keep track of display amount
-        payment_amount: paymentAmount // Actual payment amount
+        booking_id: String(bookingId),
+        venue_name: vName ? String(vName).slice(0, 60) : undefined,
+        customer_id: String(customerId),
+        event_date: booking.event_date ? new Date(booking.event_date).toISOString() : undefined,
+        display_amount: String(booking.amount),
+        payment_amount: String(paymentAmount)
       }
     };
 
-    const order = await razorpay.orders.create(orderOptions);
+    let order;
+    try {
+      order = await razorpay.orders.create(orderOptions);
+    } catch (rzpErr) {
+      const gatewayMsg = rzpErr?.error?.description || rzpErr?.message || 'Payment gateway order creation failed';
+      console.error('Razorpay order create error:', rzpErr);
+      return res.status(502).json({ error: gatewayMsg });
+    }
 
-    // Update booking with Razorpay order ID
-    await pool.execute(
-      'UPDATE bookings SET razorpay_order_id = ?, payment_status = ? WHERE id = ?',
-      [order.id, 'pending', bookingId]
-    );
+    await Booking.updateOne({ _id: bookingId }, { $set: { razorpay_order_id: order.id, payment_status: 'pending' } });
 
-    res.json({
-      success: true,
-      order: {
-        id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        booking_id: bookingId,
-        venue_name: booking.venue_name
-      },
-      key_id: process.env.RAZORPAY_KEY_ID
-    });
-
+    res.json({ success: true, order: { id: order.id, amount: order.amount, currency: order.currency, booking_id: bookingId, venue_name: vName }, key_id: process.env.RAZORPAY_KEY_ID });
   } catch (error) {
     console.error('Error creating Razorpay order:', error);
-    res.status(500).json({ error: 'Failed to create payment order' });
+    const safeMessage = typeof error?.message === 'string' && error.message.length < 300 ? error.message : 'Failed to create payment order';
+    res.status(500).json({ error: safeMessage });
   }
 });
 
 // Verify Razorpay payment
 router.post('/verify-payment', authenticateToken, async (req, res) => {
   try {
-    // Check if Razorpay is configured
-    if (!razorpay) {
-      return res.status(503).json({
-        error: 'Payment gateway not configured. Please contact support.'
-      });
-    }
+    if (!razorpay) return res.status(503).json({ error: 'Payment gateway not configured. Please contact support.' });
 
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      booking_id
-    } = req.body;
-
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, booking_id } = req.body;
     const customerId = req.user.id;
 
-    // Verify booking belongs to user
-    const [bookings] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ? AND customer_id = ? AND razorpay_order_id = ?',
-      [booking_id, customerId, razorpay_order_id]
-    );
-
-    if (bookings.length === 0) {
-      return res.status(404).json({ error: 'Booking not found' });
+    if (!mongoose.Types.ObjectId.isValid(booking_id)) {
+      return res.status(400).json({ error: 'Invalid booking id' });
     }
 
-    // Verify Razorpay signature
+    const booking = await Booking.findOne({ _id: booking_id, customer_id: customerId, razorpay_order_id }).lean();
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
     const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
-      .digest('hex');
+    const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(body.toString()).digest('hex');
+    if (expectedSignature !== razorpay_signature) return res.status(400).json({ error: 'Invalid payment signature' });
 
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ error: 'Invalid payment signature' });
-    }
+    await Booking.updateOne({ _id: booking_id }, { $set: { payment_status: 'completed', razorpay_payment_id, payment_completed_at: new Date() } });
 
-    // Payment verified successfully - update booking
-    await pool.execute(`
-      UPDATE bookings 
-      SET payment_status = 'completed', 
-          razorpay_payment_id = ?,
-          payment_completed_at = NOW()
-      WHERE id = ?
-    `, [razorpay_payment_id, booking_id]);
-
-    res.json({
-      success: true,
-      message: 'Payment verified successfully',
-      payment_id: razorpay_payment_id
-    });
-
+    res.json({ success: true, message: 'Payment verified successfully', payment_id: razorpay_payment_id });
   } catch (error) {
     console.error('Error verifying payment:', error);
-    res.status(500).json({ error: 'Payment verification failed' });
+    const safeMessage = typeof error?.message === 'string' && error.message.length < 300 ? error.message : 'Payment verification failed';
+    res.status(500).json({ error: safeMessage });
   }
 });
 
@@ -155,18 +120,12 @@ router.get('/status/:bookingId', authenticateToken, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const customerId = req.user.id;
-
-    const [bookings] = await pool.execute(`
-      SELECT payment_status, razorpay_order_id, razorpay_payment_id, amount, payment_completed_at
-      FROM bookings 
-      WHERE id = ? AND customer_id = ?
-    `, [bookingId, customerId]);
-
-    if (bookings.length === 0) {
-      return res.status(404).json({ error: 'Booking not found' });
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ error: 'Invalid booking id' });
     }
-
-    res.json(bookings[0]);
+    const booking = await Booking.findOne({ _id: bookingId, customer_id: customerId }, { payment_status: 1, razorpay_order_id: 1, razorpay_payment_id: 1, amount: 1, payment_completed_at: 1 }).lean();
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    res.json(booking);
   } catch (error) {
     console.error('Error fetching payment status:', error);
     res.status(500).json({ error: 'Failed to fetch payment status' });
@@ -178,15 +137,10 @@ router.post('/payment-failed', authenticateToken, async (req, res) => {
   try {
     const { booking_id, error_description } = req.body;
     const customerId = req.user.id;
-
-    // Update booking payment status to failed
-    await pool.execute(`
-      UPDATE bookings 
-      SET payment_status = 'failed',
-          payment_error_description = ?
-      WHERE id = ? AND customer_id = ?
-    `, [error_description, booking_id, customerId]);
-
+    if (!mongoose.Types.ObjectId.isValid(booking_id)) {
+      return res.status(400).json({ error: 'Invalid booking id' });
+    }
+    await Booking.updateOne({ _id: booking_id, customer_id: customerId }, { $set: { payment_status: 'failed', payment_error_description: error_description } });
     res.json({ success: true, message: 'Payment failure recorded' });
   } catch (error) {
     console.error('Error recording payment failure:', error);

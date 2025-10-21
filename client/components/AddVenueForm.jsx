@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { X, Upload, Plus, Trash2 } from 'lucide-react';
 import { PUNE_AREAS, VENUE_TYPES } from '@/constants/venueOptions';
 import { getUserFriendlyError } from '@/lib/errorMessages';
+import apiClient from '../lib/apiClient.js';
 
 export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
@@ -178,29 +180,13 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
         }));
 
         try {
-          const response = await fetch('/api/upload/image', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-            },
-            body: JSON.stringify({
-              imageData: imageDataArray[i],
-              folder: 'venuekart/venues'
-            })
+          const data = await apiClient.postJson('/api/upload/image', {
+            imageData: imageDataArray[i],
+            folder: 'venuekart/venues'
           });
 
-          if (!response.ok) {
-            let errorMessage = `Failed to upload image ${i + 1}: ${response.status}`;
-            try {
-              const errorData = await response.json();
-              errorMessage = errorData.error || errorMessage;
-            } catch (jsonError) {
-              errorMessage = `${errorMessage} - ${response.statusText}`;
-            }
-            console.error('Image upload failed:', errorMessage);
-
-            // Continue with other images instead of failing completely
+          if (!data || !data.url) {
+            console.error('Image upload failed: invalid response');
             setErrors(prev => ({
               ...prev,
               images: `Warning: Failed to upload image ${i + 1}. Continuing with others...`
@@ -208,7 +194,6 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
             continue;
           }
 
-          const data = await response.json();
           uploadedUrls.push(data.url);
 
         } catch (imageError) {
@@ -302,17 +287,30 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-lg">
-        <CardHeader className="flex flex-row items-center justify-between border-b px-6 py-4">
-          <CardTitle className="text-xl font-semibold text-gray-900">Add New Venue</CardTitle>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-            <X className="h-5 w-5" />
-          </Button>
-        </CardHeader>
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        >
+          <motion.div
+            initial={{ y: 10, opacity: 0, scale: 0.98 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 8, opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full max-w-2xl"
+          >
+            <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-lg">
+              <CardHeader className="flex flex-row items-center justify-between border-b px-6 py-4">
+                <CardTitle className="text-xl font-semibold text-gray-900">Add New Venue</CardTitle>
+                <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+                  <X className="h-5 w-5" />
+                </Button>
+              </CardHeader>
         
         <CardContent className="flex-1 overflow-y-auto px-6 py-6">
           {errors.general && (
@@ -356,7 +354,7 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
             </div>
 
             {/* Venue Type and Area */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Venue Type (Optional)
@@ -395,7 +393,7 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
             </div>
 
             {/* Footfall Capacity and Price */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Footfall Capacity *
@@ -460,7 +458,7 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
                   type="button"
                   variant="outline"
                   onClick={addFacility}
-                  className="w-full h-10 text-sm border-gray-300 hover:bg-gray-50"
+                  className="w-full h-10 text-sm border-gray-300 hover:bg-gray-50 text-venue-indigo hover:text-venue-indigo focus:text-venue-indigo"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Another Facility
@@ -527,7 +525,7 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
             </div>
 
             {/* Submit Buttons */}
-            <div className="flex gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
               <Button
                 type="button"
                 variant="outline"
@@ -556,7 +554,10 @@ export default function AddVenueForm({ isOpen, onClose, onSubmit }) {
             </div>
           </form>
         </CardContent>
-      </Card>
-    </div>
+            </Card>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

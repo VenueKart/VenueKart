@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { X, Upload, Plus, Trash2 } from 'lucide-react';
 import { VENUE_TYPES } from '@/constants/venueOptions';
+import apiClient from '../lib/apiClient.js';
 
 export default function EditVenueForm({ isOpen, onClose, onSubmit, venue }) {
   const [formData, setFormData] = useState({
@@ -147,27 +148,17 @@ export default function EditVenueForm({ isOpen, onClose, onSubmit, venue }) {
 
       let newImageUrls = [];
       if (newImages.length > 0) {
-        const response = await fetch('/api/upload/images', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          },
-          body: JSON.stringify({
-            images: newImages,
-            folder: 'venuekart/venues'
-          })
+        const data = await apiClient.postJson('/api/upload/images', {
+          images: newImages,
+          folder: 'venuekart/venues'
         });
 
-        if (!response.ok) {
-          // Simple error handling without cloning
-          console.error('Image upload failed:', response.status, response.statusText);
-          // Return existing URLs and continue without new images
+        if (!data || !data.images) {
+          console.error('Image upload failed: invalid response');
           setErrors(prev => ({ ...prev, images: 'New image upload failed, but venue can be saved with existing images' }));
           return existingUrls;
         }
 
-        const data = await response.json();
         newImageUrls = data.images.map(img => img.url);
       }
 

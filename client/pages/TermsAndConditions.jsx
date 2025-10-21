@@ -76,7 +76,7 @@ export default function TermsAndConditions() {
           </CardHeader>
           <CardContent>
             <p className="text-gray-600 leading-relaxed mb-4">
-              These Terms and Conditions ("Terms") constitute a legally binding agreement between <span className="font-semibold">Virtues 7 Events Pvt. Ltd.</span>, 
+              These Terms and Conditions ("Terms") constitute a legally binding agreement between <span className="font-semibold">Virtues Seven Events Pvt. Ltd.</span>, 
               a company incorporated under the Companies Act, 2013, having its registered office at Pune, Maharashtra, India 
               (hereinafter referred to as "VenueKart", "Company", "We", "Us" or "Our"), and any person or entity accessing 
               or using the VenueKart platform.

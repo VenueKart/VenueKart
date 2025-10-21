@@ -1,8 +1,14 @@
-
-
 export default {
   darkMode: ["class"],
-  content: ["./client/**/*.{js,jsx}"],
+  content: [
+    "./index.html",
+    "./App.jsx",
+    "./components/**/*.{js,jsx}",
+    "./pages/**/*.{js,jsx}",
+    "./lib/**/*.{js,jsx}",
+    "./hooks/**/*.{js,jsx}",
+    "./contexts/**/*.{js,jsx}"
+  ],
   prefix: "",
   theme: {
     container: {

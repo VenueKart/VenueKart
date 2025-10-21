@@ -1,0 +1,47 @@
+{
+  "name": "venuekart",
+  "private": true,
+  "type": "module",
+  "pkg": {
+    "assets": [
+      "dist/spa/*"
+    ],
+    "scripts": [
+      "dist/server/**/*.js"
+    ]
+  },
+  "scripts": {
+    "dev": "node dev-server.js",
+    "build": "npm run build:server",
+    "build:client": "vite build",
+    "build:server": "vite build --config vite.config.server.js",
+    "start": "node dist/server/node-build.mjs",
+    "build:export": "npm run build && node scripts/assemble-build.mjs",
+    "test": "vitest --run",
+    "format.fix": "prettier --write .",
+    "dev:client": "vite",
+    "dev:server": "node server/dev-server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^2.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.18.2",
+    "express-session": "^1.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.8.0",
+    "nodemailer": "^7.0.5",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "razorpay": "^2.9.6",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.5",
+    "prettier": "^3.5.3",
+    "vite": "^6.2.2",
+    "vitest": "^3.1.4"
+  },
+  "description": "VenueKart — Simplified & humanized rebrand of the original project."
+}

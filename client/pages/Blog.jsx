@@ -60,7 +60,7 @@ const blogPosts = [
     },
     category: "Venue Guide",
     readTime: "5 min read",
-    date: "2025-01-15",
+    date: "2024-01-15",
     image: "https://images.unsplash.com/photo-1511578314322-379afb476865?w=800&h=400&fit=crop",
     tags: ["Pune", "Venues", "Event Planning"]
   },
@@ -99,7 +99,7 @@ const blogPosts = [
     },
     category: "Marketing Insights",
     readTime: "7 min read",
-    date: "2025-01-20",
+    date: "2024-01-20",
     image: "https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=800&h=400&fit=crop",
     tags: ["Brand Activations", "Marketing", "RWA", "Societies"]
   },
@@ -140,7 +140,7 @@ const blogPosts = [
     },
     category: "Technology",
     readTime: "6 min read",
-    date: "2025-01-25",
+    date: "2024-01-25",
     image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=400&fit=crop",
     tags: ["Technology", "Digital Transformation", "Future"]
   }

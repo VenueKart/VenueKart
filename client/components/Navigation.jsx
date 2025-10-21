@@ -1,48 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+
 import { scrollToTop } from '@/lib/navigation';
 import { Button } from './ui/button';
-import { Menu, X, MapPin, LogOut, User, Building, Heart } from 'lucide-react';
+import { Menu, X, LogOut, User, Building, Heart } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-
-// API service functions
-const getAuthHeader = () => {
-  const token = localStorage.getItem('accessToken');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
-};
-
-const apiCall = async (url, options = {}) => {
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
-        ...options.headers
-      }
-    });
-
-    // Read response body once
-    let data = null;
-    try {
-      data = await response.json();
-    } catch (jsonError) {
-      console.error('Failed to parse response as JSON:', jsonError);
-      data = null;
-    }
-
-    if (!response.ok) {
-      const errorMessage = data && data.error ? data.error : 'Request failed';
-      throw new Error(errorMessage);
-    }
-
-    return data;
-  } catch (error) {
-    console.error('API call error:', error);
-    throw error;
-  }
-};
+import { motion } from 'framer-motion';
 
 export default function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -73,12 +36,13 @@ export default function Navigation() {
   const currentNavLinks = isLoggedIn ? userNavLinks : navLinks;
 
   return (
-    <motion.nav
-      initial={{ y: -100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.6, ease: "easeOut" }}
-      className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-sm"
+    <nav
+
+
+
+      className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-sm transition-colors duration-200"
     >
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-venue-indigo text-white px-3 py-2 rounded-md">Skip to content</a>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -95,22 +59,31 @@ export default function Navigation() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
-            {currentNavLinks.map((link) => (
-              <Link
-                key={link.name}
-                to={link.path}
-                onClick={scrollToTop}
-                className={`font-medium transition-colors duration-200 flex items-center gap-1 ${
-                  isActive(link.path)
-                    ? 'text-venue-indigo border-b-2 border-venue-indigo pb-1'
-                    : 'text-gray-700 hover:text-venue-indigo'
-                }`}
-              >
-                {link.name === 'Favorites' && <Heart className="h-4 w-4" />}
-                {link.name}
-              </Link>
-            ))}
+          <div className="hidden md:flex items-center gap-8">
+            {currentNavLinks.map((link) => {
+              const active = isActive(link.path);
+              return (
+                <div key={link.name} className="relative pb-1">
+                  <Link
+                    to={link.path}
+                    onClick={scrollToTop}
+                    className={`font-medium transition-colors duration-200 flex items-center gap-1 ${
+                      active ? 'text-venue-indigo' : 'text-gray-700 hover:text-venue-indigo'
+                    }`}
+                  >
+                    {link.name === 'Favorites' && <Heart className="h-4 w-4" />}
+                    {link.name}
+                  </Link>
+                  {active && (
+                    <motion.div
+                      layoutId="nav-underline"
+                      className="absolute left-0 right-0 -bottom-0.5 h-0.5 bg-venue-indigo rounded-full"
+                      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Desktop Auth Buttons */}
@@ -127,7 +100,7 @@ export default function Navigation() {
                     </span>
                   )}
                 </div>
-                {isVenueOwner() ? (
+                {(isVenueOwner() || user?.userType === 'admin') ? (
                   <Button asChild variant="outline" className="border-venue-indigo text-venue-indigo hover:bg-venue-indigo hover:text-white" onClick={scrollToTop}>
                     <Link to="/admin/dashboard">
                       <Building className="h-4 w-4 mr-2" />
@@ -142,7 +115,7 @@ export default function Navigation() {
                     </Link>
                   </Button>
                 )}
-                <Button onClick={handleLogout} variant="ghost" className="text-venue-indigo hover:bg-venue-indigo hover:text-white active:bg-venue-indigo/90 active:text-white">
+                <Button onClick={handleLogout} variant="ghost" className="text-venue-indigo active:opacity-90">
                   <LogOut className="h-4 w-4 mr-2" />
                   Logout
                 </Button>
@@ -160,28 +133,42 @@ export default function Navigation() {
           </div>
 
           {/* Mobile menu button */}
+          {!isMenuOpen && (
           <div className="md:hidden">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              onClick={() => setIsMenuOpen(true)}
               className="text-venue-indigo"
             >
-              {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              <Menu className="h-6 w-6" />
             </Button>
           </div>
+          )}
         </div>
 
         {/* Mobile Navigation */}
-        <AnimatePresence>
+        
           {isMenuOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="md:hidden overflow-hidden"
-            >
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/30 md:hidden"
+                onClick={() => setIsMenuOpen(false)}
+              />
+              <div
+                className="md:hidden fixed top-16 inset-x-0 z-50 max-h-[calc(100vh-4rem)] overflow-y-auto bg-white border-t border-gray-200 shadow-lg"
+              >
+                <div className="flex items-center justify-between px-2 py-2 border-b bg-white sticky top-0 z-10">
+                  <span className="text-sm font-medium text-venue-indigo">Menu</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="text-venue-indigo"
+                  >
+                    <X className="h-6 w-6" />
+                  </Button>
+                </div>
               <div className="px-2 pt-2 pb-3 space-y-1 bg-white border-t border-gray-200">
               {currentNavLinks.map((link) => (
                 <Link
@@ -215,7 +202,7 @@ export default function Navigation() {
                         </span>
                       )}
                     </div>
-                    {isVenueOwner() ? (
+                    {(isVenueOwner() || user?.userType === 'admin') ? (
                       <Button asChild variant="outline" className="w-full border-venue-indigo text-venue-indigo hover:bg-venue-indigo hover:text-white">
                         <Link to="/admin/dashboard" onClick={() => {
                           setIsMenuOpen(false);
@@ -236,7 +223,7 @@ export default function Navigation() {
                         </Link>
                       </Button>
                     )}
-                    <Button onClick={handleLogout} variant="ghost" className="w-full text-venue-indigo hover:bg-venue-indigo hover:text-white active:bg-venue-indigo/90 active:text-white">
+                    <Button onClick={handleLogout} variant="ghost" className="w-full text-venue-indigo active:opacity-90">
                       <LogOut className="h-4 w-4 mr-2" />
                       Logout
                     </Button>
@@ -253,10 +240,11 @@ export default function Navigation() {
                 )}
               </div>
               </div>
-            </motion.div>
+            </div>
+          </>
           )}
-        </AnimatePresence>
+        
       </div>
-    </motion.nav>
+    </nav>
   );
 }

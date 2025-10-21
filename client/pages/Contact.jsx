@@ -21,6 +21,7 @@ import {
   MessageCircle,
   HelpCircle
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 const contactInfo = [
   {
@@ -46,7 +47,7 @@ const contactInfo = [
   },
   {
     title: "Visit Us",
-    description: "VenueKart (Virtues 7 Events Pvt. Ltd.)",
+    description: "VenueKart (Virtues Seven Events Pvt. Ltd.)",
     value: "Pune, Maharashtra, India",
     icon: MapPin,
     link: null
@@ -95,6 +96,12 @@ const faqs = [
   }
 ];
 
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
+
 export default function Contact() {
   const [result, setResult] = React.useState("");
 
@@ -131,24 +138,31 @@ export default function Contact() {
       {/* Hero Section - Text Over Image */}
       <section className="relative h-[70vh] overflow-hidden">
         {/* Background Image */}
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{
-            backgroundImage: "url('https://images.unsplash.com/photo-1423666639041-f56000c27a9a?w=1200&h=800&fit=crop')"
-          }}
-        >
+        <div className="absolute inset-0 bg-cover bg-center bg-no-repeat contact-hero-image">
           <div className="absolute inset-0 bg-black/50"></div>
         </div>
 
         {/* Content Over Image */}
         <div className="relative h-full flex flex-col justify-center px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto text-center">
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 font-poppins">
+            <motion.h1
+              className="text-4xl md:text-6xl font-bold text-white mb-6 font-poppins"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={transition}
+            >
               We'd Love to Hear from You!
-            </h1>
-            <p className="text-xl text-white/90 mb-8 max-w-3xl mx-auto leading-relaxed">
+            </motion.h1>
+            <motion.p
+              className="text-xl text-white/90 mb-8 max-w-3xl mx-auto leading-relaxed"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ ...transition, delay: 0.1 }}
+            >
               At VenueKart, we're committed to making your event planning and venue booking experience seamless. Whether you have a question, need support, or want to partner with us, our team is always ready to connect with you.
-            </p>
+            </motion.p>
           </div>
         </div>
       </section>
@@ -156,7 +170,14 @@ export default function Contact() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Contact Information */}
-          <div className="lg:col-span-1">
+          <motion.div
+            className="lg:col-span-1"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
+          >
             <h2 className="text-2xl font-bold text-venue-dark mb-6">
               Get in Touch
             </h2>
@@ -181,7 +202,14 @@ export default function Contact() {
                 );
 
                 return (
-                  <div key={index}>
+                  <motion.div
+                    key={index}
+                    variants={fadeUp}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, amount: 0.2 }}
+                    transition={{ ...transition, delay: index * 0.05 }}
+                  >
                     {info.link ? (
                       <a href={info.link} className="block hover:bg-gray-50 rounded-lg p-2 -m-2 transition-colors">
                         {content}
@@ -189,13 +217,19 @@ export default function Contact() {
                     ) : (
                       <div>{content}</div>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
 
             {/* Social Media Section */}
-            <div>
+            <motion.div
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.2 }}
+              transition={transition}
+            >
               <h3 className="text-xl font-bold text-venue-dark mb-4">Find Us Online</h3>
               <div className="space-y-3">
                 {socialLinks.map((social, index) => {
@@ -208,11 +242,18 @@ export default function Contact() {
                   );
                 })}
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
 
           {/* Enhanced Contact Form */}
-          <div className="lg:col-span-2">
+          <motion.div
+            className="lg:col-span-2"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ ...transition, delay: 0.05 }}
+          >
             <Card className="shadow-lg border-0 bg-white">
               <CardHeader className="pb-6">
                 <CardTitle className="text-3xl text-venue-dark font-bold">Send us a Message</CardTitle>
@@ -318,11 +359,18 @@ export default function Contact() {
                 </form>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
         </div>
 
         {/* FAQ Section */}
-        <div className="mt-16">
+        <motion.div
+          className="mt-16"
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.2 }}
+          transition={transition}
+        >
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-venue-dark mb-4">
               Frequently Asked Questions
@@ -353,7 +401,7 @@ export default function Contact() {
               </CardContent>
             </Card>
           </div>
-        </div>
+        </motion.div>
 
       </div>
     </div>

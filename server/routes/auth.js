@@ -1,189 +1,114 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import pool from '../config/database.js';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { sendOTPEmail } from '../services/emailService.js';
+import User from '../models/User.js';
+import OtpVerification from '../models/OtpVerification.js';
+import RefreshToken from '../models/RefreshToken.js';
 
 const router = Router();
 
 // Google OAuth routes
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI; // e.g. http://localhost:8081/api/auth/google/callback
-  const scope = 'openid email profile'; // include openid for ID token
-
-  // Hard fail early if any critical env is missing
+  const scope = 'openid email profile';
   if (!clientId) return res.status(500).send('Missing GOOGLE_CLIENT_ID');
-  if (!redirectUri) return res.status(500).send('Missing GOOGLE_REDIRECT_URI');
 
-  // Validate and set userType
+  // Compute redirect URI dynamically based on current host
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+
   const requestedUserType = req.query.userType || 'customer';
   const userType = ['customer', 'venue-owner'].includes(requestedUserType) ? requestedUserType : 'customer';
+  const openerOrigin = req.query.origin || '';
 
-  console.log(`Google OAuth initiated with userType: ${userType} (requested: ${requestedUserType})`);
-  console.log(`Using redirectUri: ${redirectUri}`);
-
-  const authUrl =
-    `https://accounts.google.com/o/oauth2/v2/auth?` +
-    `client_id=${encodeURIComponent(clientId)}&` +
-    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `scope=${encodeURIComponent(scope)}&` +
-    `response_type=code&` +
-    `access_type=offline&` +
-    `prompt=consent&` +
-    `state=${encodeURIComponent(JSON.stringify({ userType }))}`;
-
+  // Include userType and openerOrigin in state so callback can postMessage to correct opener
+  const stateObj = { userType, origin: openerOrigin };
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code&access_type=offline&prompt=consent&state=${encodeURIComponent(JSON.stringify(stateObj))}`;
   return res.redirect(authUrl);
 });
 
 router.get('/google/callback', async (req, res) => {
   try {
     const { code, error, state } = req.query;
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+    const envOrigins = [process.env.CORS_ALLOWED_ORIGINS, process.env.FRONTEND_URL, process.env.CLIENT_URL]
+      .filter(Boolean)
+      .flatMap(v => v.split(',').map(s => s.trim()).filter(Boolean));
 
-    // Parse userType from state parameter
-    let userType = 'customer'; // default
+    // Prefer origin passed in state (from opener) if it's in allowed env origins
+    let userType = 'customer';
+    let stateOrigin = '';
     if (state) {
       try {
-        const stateData = JSON.parse(decodeURIComponent(state));
-        const requestedUserType = stateData.userType || 'customer';
-        // Validate userType
-        userType = ['customer', 'venue-owner'].includes(requestedUserType) ? requestedUserType : 'customer';
-        console.log(`Google OAuth callback - userType from state: ${userType} (requested: ${requestedUserType})`);
-      } catch (parseError) {
-        console.log('Could not parse state parameter:', parseError);
+        const s = JSON.parse(decodeURIComponent(state));
+        userType = ['customer', 'venue-owner'].includes(s.userType) ? s.userType : 'customer';
+        stateOrigin = s.origin || '';
+      } catch (err) {
+        // ignore
       }
-    } else {
-      console.log('No state parameter received, using default userType: customer');
     }
-    
+
+    const referer = req.get('referer') || '';
+    let refererOrigin = '';
+    try { refererOrigin = new URL(referer).origin; } catch {}
+
+    const candidateOrigins = [stateOrigin, refererOrigin, ...(envOrigins.length ? envOrigins : [])].filter(Boolean);
+    const targetOrigin = candidateOrigins.find(o => envOrigins.includes(o)) || candidateOrigins[0] || (envOrigins[0] || 'http://localhost:5173');
     if (error || !code) {
       return res.send(`
         <script>
           if (window.opener && !window.opener.closed) {
             try {
-              window.opener.postMessage({
-                type: 'GOOGLE_AUTH_ERROR',
-                error: 'oauth_failed'
-              }, '${process.env.CLIENT_URL}');
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: 'oauth_failed' }, '${targetOrigin}');
               setTimeout(() => window.close(), 100);
             } catch (error) {
-              window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed';
+              try { window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: 'oauth_failed' }, '*'); setTimeout(() => window.close(), 100); } catch (err) { window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed'; }
             }
-          } else {
-            window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed';
-          }
+          } else { window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed'; }
         </script>
       `);
     }
 
-    // Exchange code for tokens
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, code, grant_type: 'authorization_code', redirect_uri: redirectUri })
     });
-
     const tokens = await tokenResponse.json();
+    if (!tokenResponse.ok) return res.redirect(`${process.env.CLIENT_URL}/signin?error=oauth_failed`);
 
-    if (!tokenResponse.ok) {
-      console.error('Token exchange failed:', tokens);
-      return res.redirect(`${process.env.CLIENT_URL}/signin?error=oauth_failed`);
-    }
-
-    // Get user info from Google
     const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokens.access_token}`);
     const googleUser = await userResponse.json();
+    if (!userResponse.ok) return res.redirect(`${process.env.CLIENT_URL}/signin?error=oauth_failed`);
 
-    if (!userResponse.ok) {
-      console.error('Failed to get user info:', googleUser);
-      return res.redirect(`${process.env.CLIENT_URL}/signin?error=oauth_failed`);
-    }
-
-    // Check if user exists
-    let [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ?',
-      [googleUser.email]
-    );
-
-    let user;
-    if (userRows.length === 0) {
-      // Create new user with the specified user type
-      console.log(`Creating new user via Google OAuth with userType: ${userType} for email: ${googleUser.email}`);
-      const [result] = await pool.execute(
-        'INSERT INTO users (google_id, email, name, profile_picture, user_type, is_verified) VALUES (?, ?, ?, ?, ?, ?)',
-        [googleUser.id, googleUser.email, googleUser.name, googleUser.picture, userType, true]
-      );
-
-      user = {
-        id: result.insertId,
-        google_id: googleUser.id,
-        email: googleUser.email,
-        name: googleUser.name,
-        profile_picture: googleUser.picture,
-        user_type: userType,
-        is_verified: true
-      };
+    let user = await User.findOne({ email: googleUser.email });
+    if (!user) {
+      user = await User.create({ google_id: googleUser.id, email: googleUser.email, name: googleUser.name, profile_picture: googleUser.picture, user_type: userType, is_verified: true });
     } else {
-      user = userRows[0];
-      // Update Google ID and profile picture if not set
       if (!user.google_id) {
-        await pool.execute(
-          'UPDATE users SET google_id = ?, profile_picture = ?, is_verified = true WHERE id = ?',
-          [googleUser.id, googleUser.picture, user.id]
-        );
         user.google_id = googleUser.id;
         user.profile_picture = googleUser.picture;
         user.is_verified = true;
+        await user.save();
       }
     }
 
-    // Generate our own tokens
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const accessToken = generateAccessToken({ id: user.id, email: user.email, user_type: user.user_type });
+    const refreshToken = generateRefreshToken({ id: user.id, email: user.email });
 
-    // Store refresh token
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await pool.execute(
-      'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.id, refreshToken, expiresAt]
-    );
+    await RefreshToken.create({ user_id: user.id, token: refreshToken, expires_at: expiresAt });
 
-    // For popup window, close popup and pass tokens to parent
     res.send(`
       <script>
-        console.log('Google auth callback successful');
-
-        // Store tokens in parent window
         if (window.opener && !window.opener.closed) {
           try {
-            window.opener.postMessage({
-              type: 'GOOGLE_AUTH_SUCCESS',
-              accessToken: '${accessToken}',
-              refreshToken: '${refreshToken}'
-            }, '${process.env.CLIENT_URL}');
-
-            // Give a moment for message to be processed
-            setTimeout(() => {
-              window.close();
-            }, 100);
+            window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', accessToken: '${accessToken}', refreshToken: '${refreshToken}' }, '${targetOrigin}');
+            setTimeout(() => { window.close(); }, 100);
           } catch (error) {
-            console.error('Error posting message to parent:', error);
-            // Fallback: redirect normally
-            window.location.href = '${process.env.CLIENT_URL}/?access_token=${accessToken}&refresh_token=${refreshToken}';
+            try { window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', accessToken: '${accessToken}', refreshToken: '${refreshToken}' }, '*'); setTimeout(() => { window.close(); }, 100); } catch (err) { window.location.href='${process.env.CLIENT_URL}/?access_token=${accessToken}&refresh_token=${refreshToken}'; }
           }
-        } else {
-          // Fallback: redirect normally if not in popup
-          window.location.href = '${process.env.CLIENT_URL}/?access_token=${accessToken}&refresh_token=${refreshToken}';
-        }
+        } else { window.location.href='${process.env.CLIENT_URL}/?access_token=${accessToken}&refresh_token=${refreshToken}'; }
       </script>
     `);
   } catch (error) {
@@ -192,17 +117,12 @@ router.get('/google/callback', async (req, res) => {
       <script>
         if (window.opener && !window.opener.closed) {
           try {
-            window.opener.postMessage({
-              type: 'GOOGLE_AUTH_ERROR',
-              error: 'oauth_failed'
-            }, '${process.env.CLIENT_URL}');
+            window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: 'oauth_failed' }, '${targetOrigin}');
             setTimeout(() => window.close(), 100);
           } catch (error) {
-            window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed';
+            try { window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: 'oauth_failed' }, '*'); setTimeout(() => window.close(), 100); } catch (err) { window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed'; }
           }
-        } else {
-          window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed';
-        }
+        } else { window.location.href = '${process.env.CLIENT_URL}/signin?error=oauth_failed'; }
       </script>
     `);
   }
@@ -211,114 +131,41 @@ router.get('/google/callback', async (req, res) => {
 // User Registration with OTP verification
 router.post('/register', async (req, res) => {
   try {
-    console.log('Registration request received:', {
-      body: { ...req.body, password: req.body.password ? '[PROVIDED]' : null },
-      headers: req.headers['content-type']
-    });
-
     const { email, name, userType = 'customer', password = null, mobileNumber = null } = req.body;
-
-    console.log('Extracted data:', { email, name, userType, password: password ? '[PROVIDED]' : null, mobileNumber });
-
-    // Validation
-    if (!email || !name) {
-      console.log('Validation failed: Email or name missing');
-      return res.status(400).json({ error: 'Email and name are required' });
-    }
-
+    if (!email || !name) return res.status(400).json({ error: 'Email and name are required' });
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      console.log('Validation failed: Invalid email format');
-      return res.status(400).json({ error: 'Please enter a valid email address' });
+    if (!emailRegex.test(email)) return res.status(400).json({ error: 'Please enter a valid email address' });
+    if (!['customer', 'venue-owner'].includes(userType)) return res.status(400).json({ error: 'Invalid user type' });
+    if (userType === 'venue-owner' && !password) return res.status(400).json({ error: 'Password is required for venue owners' });
+    if (password && password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    if (mobileNumber) {
+      const digits = String(mobileNumber).replace(/\D/g, '');
+      let d = digits;
+      if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+      if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+      if (d.length < 10) return res.status(400).json({ error: 'Phone number is too short. Enter exactly 10 digits.' });
+      if (d.length > 10) return res.status(400).json({ error: 'Phone number is too long. Enter exactly 10 digits.' });
     }
 
-    if (!['customer', 'venue-owner'].includes(userType)) {
-      console.log('Validation failed: Invalid user type:', userType);
-      return res.status(400).json({ error: 'Invalid user type' });
+    const existing = await User.findOne({ email });
+    if (existing) {
+      if (existing.is_verified) return res.status(400).json({ error: 'Email is already registered' });
+      await User.deleteOne({ _id: existing._id });
+      await OtpVerification.deleteMany({ email });
     }
 
-    if (userType === 'venue-owner' && !password) {
-      console.log('Validation failed: Password required for venue owner');
-      return res.status(400).json({ error: 'Password is required for venue owners' });
-    }
+    const passwordHash = password ? await bcrypt.hash(password, 12) : null;
+    await User.create({ email, name, password_hash: passwordHash, mobile_number: mobileNumber, user_type: userType, is_verified: false });
 
-    if (password && password.length < 6) {
-      console.log('Validation failed: Password too short');
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-    }
-
-    if (mobileNumber && !/^[0-9]{10}$/.test(mobileNumber.replace(/\s+/g, ''))) {
-      console.log('Validation failed: Invalid mobile number');
-      return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
-    }
-
-    console.log('All validations passed, proceeding with registration');
-
-    // Check if user already exists
-    const [existingUsers] = await pool.execute(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
-    );
-
-    if (existingUsers.length > 0) {
-      if (existingUsers[0].is_verified) {
-        return res.status(400).json({ error: 'Email is already registered' });
-      } else {
-        // Delete unverified user to allow re-registration
-        await pool.execute('DELETE FROM users WHERE email = ? AND is_verified = FALSE', [email]);
-      }
-    }
-
-    // Hash password if provided
-    let passwordHash = null;
-    if (password) {
-      passwordHash = await bcrypt.hash(password, 12);
-    }
-
-    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await OtpVerification.create({ email, otp, expires_at: expiresAt });
 
-    // Store user temporarily (unverified)
-    const [result] = await pool.execute(
-      'INSERT INTO users (email, name, password_hash, mobile_number, user_type, is_verified) VALUES (?, ?, ?, ?, ?, FALSE)',
-      [email, name, passwordHash, mobileNumber, userType]
-    );
+    await sendOTPEmail(email, otp, name, 'Account Verification');
 
-    // Store OTP
-    await pool.execute('DELETE FROM otp_verifications WHERE email = ?', [email]);
-    await pool.execute(
-      'INSERT INTO otp_verifications (email, otp, expires_at) VALUES (?, ?, ?)',
-      [email, otp, expiresAt]
-    );
-
-    // Send OTP email
-    console.log('Attempting to send OTP email...');
-    const emailSent = await sendOTPEmail(email, otp, name, 'Account Verification');
-    console.log('Email sent result:', emailSent);
-
-    if (!emailSent) {
-      console.log('Email sending failed, but continuing with registration for debugging...');
-      console.log('In production, this would clean up and return an error');
-      // Temporarily commenting out cleanup for debugging
-      // await pool.execute('DELETE FROM users WHERE id = ?', [result.insertId]);
-      // await pool.execute('DELETE FROM otp_verifications WHERE email = ?', [email]);
-      // return res.status(500).json({ error: 'Failed to send verification email' });
-    }
-
-    console.log('Registration completed successfully');
-    res.status(201).json({
-      message: 'Registration successful! Please check your email for the verification code.',
-      email: email
-    });
+    res.status(201).json({ message: 'Registration successful! Please check your email for the verification code.', email });
   } catch (error) {
-    console.error('Registration error details:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-      errno: error.errno,
-      sqlState: error.sqlState
-    });
+    console.error('Registration error details:', error);
     res.status(500).json({ error: 'Registration failed. Please try again.' });
   }
 });
@@ -327,65 +174,24 @@ router.post('/register', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
 
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP are required' });
-    }
+    const otpRow = await OtpVerification.findOne({ email, otp, expires_at: { $gt: new Date() } }).sort({ created_at: -1 }).lean();
+    if (!otpRow) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
-    // Check OTP
-    const [otpRows] = await pool.execute(
-      'SELECT * FROM otp_verifications WHERE email = ? AND otp = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [email, otp]
-    );
+    const user = await User.findOneAndUpdate({ email, is_verified: false }, { $set: { is_verified: true } }, { new: true, projection: { password_hash: 0 } });
+    if (!user) return res.status(404).json({ error: 'User not found or already verified' });
 
-    if (otpRows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
+    await OtpVerification.deleteMany({ email });
 
-    // Get user
-    const [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ? AND is_verified = FALSE',
-      [email]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'User not found or already verified' });
-    }
-
-    const user = userRows[0];
-
-    // Mark user as verified
-    await pool.execute(
-      'UPDATE users SET is_verified = TRUE WHERE id = ?',
-      [user.id]
-    );
-
-    // Delete used OTP
-    await pool.execute(
-      'DELETE FROM otp_verifications WHERE email = ?',
-      [email]
-    );
-
-    // Generate tokens
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-
-    // Store refresh token
+    const accessToken = generateAccessToken({ id: user.id, email: user.email, user_type: user.user_type });
+    const refreshToken = generateRefreshToken({ id: user.id, email: user.email });
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await pool.execute(
-      'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.id, refreshToken, expiresAt]
-    );
+    await RefreshToken.create({ user_id: user.id, token: refreshToken, expires_at: expiresAt });
 
     res.json({
       message: 'Email verified successfully!',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        userType: user.user_type,
-        profilePicture: user.profile_picture
-      },
+      user: { id: user.id, email: user.email, name: user.name, userType: user.user_type, profilePicture: user.profile_picture },
       accessToken,
       refreshToken
     });
@@ -399,40 +205,19 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/resend-otp', async (req, res) => {
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const user = await User.findOne({ email, is_verified: false }).lean();
+    if (!user) return res.status(404).json({ error: 'User not found or already verified' });
 
-    // Check if user exists and is unverified
-    const [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ? AND is_verified = FALSE',
-      [email]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'User not found or already verified' });
-    }
-
-    const user = userRows[0];
-
-    // Generate new OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Update OTP
-    await pool.execute('DELETE FROM otp_verifications WHERE email = ?', [email]);
-    await pool.execute(
-      'INSERT INTO otp_verifications (email, otp, expires_at) VALUES (?, ?, ?)',
-      [email, otp, expiresAt]
-    );
+    await OtpVerification.deleteMany({ email });
+    await OtpVerification.create({ email, otp, expires_at: expiresAt });
 
-    // Send OTP email
     const emailSent = await sendOTPEmail(email, otp, user.name, 'Account Verification');
-    
-    if (!emailSent) {
-      return res.status(500).json({ error: 'Failed to send verification email' });
-    }
+    if (!emailSent) return res.status(500).json({ error: 'Failed to send verification email' });
 
     res.json({ message: 'Verification code sent successfully!' });
   } catch (error) {
@@ -445,14 +230,7 @@ router.post('/resend-otp', async (req, res) => {
 router.post('/logout', async (req, res) => {
   try {
     const { refreshToken } = req.body;
-    
-    if (refreshToken) {
-      await pool.execute(
-        'DELETE FROM refresh_tokens WHERE token = ?',
-        [refreshToken]
-      );
-    }
-
+    if (refreshToken) await RefreshToken.deleteOne({ token: refreshToken });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -464,46 +242,19 @@ router.post('/logout', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(401).json({ error: 'Refresh token required' });
 
-    if (!refreshToken) {
-      return res.status(401).json({ error: 'Refresh token required' });
-    }
-
-    // Verify refresh token
     const decoded = verifyRefreshToken(refreshToken);
-    if (!decoded) {
-      return res.status(403).json({ error: 'Invalid refresh token' });
-    }
+    if (!decoded) return res.status(403).json({ error: 'Invalid refresh token' });
 
-    // Check if refresh token exists in database and is not expired
-    const [tokenRows] = await pool.execute(
-      'SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()',
-      [refreshToken]
-    );
+    const tokenRow = await RefreshToken.findOne({ token: refreshToken, expires_at: { $gt: new Date() } }).lean();
+    if (!tokenRow) return res.status(403).json({ error: 'Refresh token expired or not found' });
 
-    if (tokenRows.length === 0) {
-      return res.status(403).json({ error: 'Refresh token expired or not found' });
-    }
+    const user = await User.findById(decoded.id).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Get user data
-    const [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE id = ?',
-      [decoded.id]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = userRows[0];
-
-    // Generate new access token
-    const newAccessToken = generateAccessToken(user);
-
-    res.json({
-      accessToken: newAccessToken,
-      message: 'Token refreshed successfully'
-    });
+    const newAccessToken = generateAccessToken({ id: user._id.toString(), email: user.email, user_type: user.user_type });
+    res.json({ accessToken: newAccessToken, message: 'Token refreshed successfully' });
   } catch (error) {
     console.error('Token refresh error:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
@@ -514,109 +265,39 @@ router.post('/refresh', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
+    const user = await User.findOne({ email, is_verified: true }).lean();
+    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
-    // Check database connection
-    try {
-      await pool.execute('SELECT 1');
-    } catch (dbError) {
-      console.error('Database connection failed:', dbError.message);
-      return res.status(503).json({
-        error: 'Database service unavailable. Please connect to a database service like Neon or set up MySQL.'
-      });
-    }
+    if (!user.password_hash) return res.status(401).json({ error: 'This account uses social login. Please sign in with Google.' });
 
-    // Get user from database
-    const [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ? AND is_verified = TRUE',
-      [email]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    const user = userRows[0];
-
-    // Check if user has a password (not OAuth-only user)
-    if (!user.password_hash) {
-      return res.status(401).json({ error: 'This account uses social login. Please sign in with Google.' });
-    }
-
-    // Verify password
     const passwordValid = await bcrypt.compare(password, user.password_hash);
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
+    if (!passwordValid) return res.status(401).json({ error: 'Invalid email or password' });
 
-    // Generate tokens
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-
-    // Store refresh token
+    const accessToken = generateAccessToken({ id: user._id.toString(), email: user.email, user_type: user.user_type });
+    const refreshToken = generateRefreshToken({ id: user._id.toString(), email: user.email });
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await pool.execute(
-      'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.id, refreshToken, expiresAt]
-    );
+    await RefreshToken.create({ user_id: user._id, token: refreshToken, expires_at: expiresAt });
 
     res.json({
       message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        userType: user.user_type,
-        profilePicture: user.profile_picture
-      },
+      user: { id: user._id.toString(), email: user.email, name: user.name, userType: user.user_type, profilePicture: user.profile_picture },
       accessToken,
       refreshToken
     });
   } catch (error) {
     console.error('Login error:', error);
-
-    // Provide specific error messages based on error type
-    if (error.code === 'ECONNREFUSED' || error.code === 'ER_ACCESS_DENIED_ERROR') {
-      return res.status(503).json({
-        error: 'Database connection failed. Please ensure database is running and credentials are correct.'
-      });
-    } else if (error.code === 'ER_NO_SUCH_TABLE') {
-      return res.status(503).json({
-        error: 'Database tables not found. Please initialize the database.'
-      });
-    } else {
-      return res.status(500).json({
-        error: `Login failed: ${error.message}`
-      });
-    }
+    return res.status(500).json({ error: `Login failed: ${error.message}` });
   }
 });
 
 // Get current user
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const [userRows] = await pool.execute(
-      'SELECT id, email, name, user_type, profile_picture, mobile_number, is_verified FROM users WHERE id = ?',
-      [req.user.id]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = userRows[0];
-    res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      userType: user.user_type,
-      profilePicture: user.profile_picture,
-      mobileNumber: user.mobile_number,
-      isVerified: user.is_verified
-    });
+    const user = await User.findById(req.user.id, { email: 1, name: 1, user_type: 1, profile_picture: 1, mobile_number: 1, is_verified: 1 }).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ id: user._id.toString(), email: user.email, name: user.name, userType: user.user_type, profilePicture: user.profile_picture, mobileNumber: user.mobile_number, isVerified: user.is_verified });
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to get user data' });
@@ -627,40 +308,18 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const user = await User.findOne({ email, is_verified: true }).lean();
+    if (!user) return res.status(404).json({ error: "Email doesn't exist in our records" });
 
-    // Check if user exists
-    const [userRows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ? AND is_verified = TRUE',
-      [email]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'Email doesn\'t exist in our records' });
-    }
-
-    const user = userRows[0];
-
-    // Generate OTP for password reset
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await OtpVerification.deleteMany({ email });
+    await OtpVerification.create({ email, otp, expires_at: expiresAt });
 
-    // Delete old OTPs and store new one
-    await pool.execute('DELETE FROM otp_verifications WHERE email = ?', [email]);
-    await pool.execute(
-      'INSERT INTO otp_verifications (email, otp, expires_at) VALUES (?, ?, ?)',
-      [email, otp, expiresAt]
-    );
-
-    // Send OTP email
     const emailSent = await sendOTPEmail(email, otp, user.name, 'Password Reset');
-
-    if (!emailSent) {
-      return res.status(500).json({ error: 'Failed to send reset email' });
-    }
+    if (!emailSent) return res.status(500).json({ error: 'Failed to send reset email' });
 
     res.json({ message: 'Password reset code sent to your email' });
   } catch (error) {
@@ -673,39 +332,15 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) return res.status(400).json({ error: 'Email, OTP, and new password are required' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters long' });
 
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ error: 'Email, OTP, and new password are required' });
-    }
+    const otpRow = await OtpVerification.findOne({ email, otp, expires_at: { $gt: new Date() } }).sort({ created_at: -1 }).lean();
+    if (!otpRow) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-    }
-
-    // Verify OTP
-    const [otpRows] = await pool.execute(
-      'SELECT * FROM otp_verifications WHERE email = ? AND otp = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [email, otp]
-    );
-
-    if (otpRows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
-
-    // Hash new password
     const passwordHash = await bcrypt.hash(newPassword, 12);
-
-    // Update password
-    await pool.execute(
-      'UPDATE users SET password_hash = ? WHERE email = ?',
-      [passwordHash, email]
-    );
-
-    // Delete used OTP
-    await pool.execute(
-      'DELETE FROM otp_verifications WHERE email = ?',
-      [email]
-    );
+    await User.updateOne({ email }, { $set: { password_hash: passwordHash } });
+    await OtpVerification.deleteMany({ email });
 
     res.json({ message: 'Password reset successfully' });
   } catch (error) {
@@ -718,72 +353,23 @@ router.post('/reset-password', async (req, res) => {
 router.post('/verify-email-update', async (req, res) => {
   try {
     const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
 
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP are required' });
-    }
+    const otpRow = await OtpVerification.findOne({ email, otp, expires_at: { $gt: new Date() } }).sort({ created_at: -1 }).lean();
+    if (!otpRow) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
-    // Check OTP and get pending data
-    const [otpRows] = await pool.execute(
-      'SELECT * FROM otp_verifications WHERE email = ? AND otp = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [email, otp]
-    );
-
-    if (otpRows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
-
-    const pendingData = JSON.parse(otpRows[0].pending_data);
+    const pendingData = JSON.parse(otpRow.pending_data || '{}');
     const { userId, name, mobileNumber, password } = pendingData;
 
-    // Prepare update fields
-    let updateFields = ['name = ?', 'email = ?'];
-    let updateValues = [name, email];
+    const update = { name, email };
+    if (mobileNumber) update.mobile_number = String(mobileNumber).replace(/\D/g, '').replace(/^91/, '').replace(/^0/, '');
+    if (password) update.password_hash = await bcrypt.hash(password, 12);
 
-    if (mobileNumber) {
-      updateFields.push('mobile_number = ?');
-      updateValues.push(mobileNumber);
-    }
+    await User.updateOne({ _id: userId }, { $set: update });
+    await OtpVerification.deleteMany({ email });
 
-    if (password) {
-      const passwordHash = await bcrypt.hash(password, 12);
-      updateFields.push('password_hash = ?');
-      updateValues.push(passwordHash);
-    }
-
-    updateValues.push(userId);
-
-    // Update user with new email
-    await pool.execute(
-      `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
-
-    // Delete used OTP
-    await pool.execute(
-      'DELETE FROM otp_verifications WHERE email = ?',
-      [email]
-    );
-
-    // Get updated user data
-    const [updatedUserRows] = await pool.execute(
-      'SELECT id, email, name, user_type, profile_picture, mobile_number, is_verified FROM users WHERE id = ?',
-      [userId]
-    );
-
-    const updatedUser = updatedUserRows[0];
-    res.json({
-      message: 'Email verified and profile updated successfully',
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        name: updatedUser.name,
-        userType: updatedUser.user_type,
-        profilePicture: updatedUser.profile_picture,
-        mobileNumber: updatedUser.mobile_number,
-        isVerified: updatedUser.is_verified
-      }
-    });
+    const updatedUser = await User.findById(userId, { email: 1, name: 1, user_type: 1, profile_picture: 1, mobile_number: 1, is_verified: 1 }).lean();
+    res.json({ message: 'Email verified and profile updated successfully', user: { id: updatedUser._id.toString(), email: updatedUser.email, name: updatedUser.name, userType: updatedUser.user_type, profilePicture: updatedUser.profile_picture, mobileNumber: updatedUser.mobile_number, isVerified: updatedUser.is_verified } });
   } catch (error) {
     console.error('Email verification error:', error);
     res.status(500).json({ error: 'Failed to verify email update' });
@@ -795,92 +381,45 @@ router.put('/update-profile', authenticateToken, async (req, res) => {
   try {
     const { name, email, mobileNumber, password } = req.body;
     const userId = req.user.id;
-
-    // Validate required fields
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Name and email are required' });
-    }
-
-    // Validate email format
+    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Invalid email format' });
+    if (!emailRegex.test(email)) return res.status(400).json({ error: 'Invalid email format' });
+
+    // Normalize phone number: keep digits, drop +91 or leading 0
+    let normalizedPhone = null;
+    if (mobileNumber) {
+      const digits = String(mobileNumber).replace(/\D/g, '');
+      let d = digits;
+      if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+      if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+      if (d.length < 10) return res.status(400).json({ error: 'Phone number is too short. Enter exactly 10 digits.' });
+      if (d.length > 10) return res.status(400).json({ error: 'Phone number is too long. Enter exactly 10 digits.' });
+      normalizedPhone = d;
     }
 
-    // Validate mobile number if provided
-    if (mobileNumber && !/^[0-9]{10}$/.test(mobileNumber.replace(/\s+/g, ''))) {
-      return res.status(400).json({ error: 'Invalid mobile number format' });
-    }
-
-    // Get current user data
-    const [currentUserRows] = await pool.execute(
-      'SELECT email FROM users WHERE id = ?',
-      [userId]
-    );
-
-    const currentEmail = currentUserRows[0].email;
+    const current = await User.findById(userId, { email: 1 }).lean();
+    const currentEmail = current?.email;
     const emailChanged = email !== currentEmail;
 
-    // Check if email is already taken by another user
     if (emailChanged) {
-      const [existingUser] = await pool.execute(
-        'SELECT id FROM users WHERE email = ? AND id != ?',
-        [email, userId]
-      );
+      const exists = await User.findOne({ email, _id: { $ne: userId } }, { _id: 1 }).lean();
+      if (exists) return res.status(400).json({ error: 'Email is already taken by another user' });
 
-      if (existingUser.length > 0) {
-        return res.status(400).json({ error: 'Email is already taken by another user' });
-      }
-    }
-
-    // If email is being changed, require verification
-    if (emailChanged) {
-      // Generate OTP for email verification
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await OtpVerification.deleteMany({ email });
+      await OtpVerification.create({ email, otp, expires_at: expiresAt, pending_data: JSON.stringify({ userId, name, email, mobileNumber: normalizedPhone, password }) });
 
-      // Store OTP and pending changes
-      await pool.execute('DELETE FROM otp_verifications WHERE email = ?', [email]);
-      await pool.execute(
-        'INSERT INTO otp_verifications (email, otp, expires_at, pending_data) VALUES (?, ?, ?, ?)',
-        [email, otp, expiresAt, JSON.stringify({ userId, name, email, mobileNumber, password })]
-      );
-
-      // Send OTP email
       const emailSent = await sendOTPEmail(email, otp, name, 'Email Update Verification');
+      if (!emailSent) return res.status(500).json({ error: 'Failed to send verification email' });
 
-      if (!emailSent) {
-        return res.status(500).json({ error: 'Failed to send verification email' });
-      }
-
-      return res.json({
-        requiresVerification: true,
-        newEmail: email,
-        message: 'Verification code sent to your new email address'
-      });
+      return res.json({ requiresVerification: true, newEmail: email, message: 'Verification code sent to your new email address' });
     }
 
-    // If no email change, update directly
-    let updateFields = ['name = ?'];
-    let updateValues = [name];
-
-    if (mobileNumber) {
-      updateFields.push('mobile_number = ?');
-      updateValues.push(mobileNumber);
-    }
-
-    if (password) {
-      const passwordHash = await bcrypt.hash(password, 12);
-      updateFields.push('password_hash = ?');
-      updateValues.push(passwordHash);
-    }
-
-    updateValues.push(userId);
-
-    await pool.execute(
-      `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
+    const update = { name };
+    if (normalizedPhone) update.mobile_number = normalizedPhone;
+    if (password) update.password_hash = await bcrypt.hash(password, 12);
+    await User.updateOne({ _id: userId }, { $set: update });
 
     res.json({ message: 'Profile updated successfully' });
   } catch (error) {

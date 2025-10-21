@@ -39,39 +39,66 @@ class VenueService {
       throw new Error(userFriendlyMessage);
     }
 
-    const uploadedUrls = [];
+    try {
+      const toDataUrl = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-    for (const image of images) {
-      try {
-        const formData = new FormData();
-        formData.append('file', image.file);
-        formData.append('folder', 'venues');
+      const base64Images = [];
+      for (const img of images) {
+        if (!img) continue;
+        if (typeof img === 'string' && img.startsWith('data:image/')) {
+          base64Images.push(img);
+        } else if (img.preview && typeof img.preview === 'string' && img.preview.startsWith('data:image/')) {
+          base64Images.push(img.preview);
+        } else if (img.file instanceof Blob) {
+          const dataUrl = await toDataUrl(img.file);
+          base64Images.push(dataUrl);
+        } else if (img instanceof Blob) {
+          const dataUrl = await toDataUrl(img);
+          base64Images.push(dataUrl);
+        }
+      }
 
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
+      if (base64Images.length === 0) {
+        return [];
+      }
+
+      if (base64Images.length === 1) {
+        const data = await apiClient.postJson('/api/upload/image', {
+          imageData: base64Images[0],
+          folder: 'venuekart/venues'
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          const originalError = data.error || 'Failed to upload image';
+        if (!data || !data.url) {
+          const originalError = (data && (data.error || data.message)) || 'Failed to upload image';
           const userFriendlyMessage = getUserFriendlyError(originalError, 'general');
           throw new Error(userFriendlyMessage);
         }
 
-        uploadedUrls.push(data.secure_url);
-      } catch (error) {
-        console.error('Error uploading image:', error);
-        const userFriendlyMessage = getUserFriendlyError(error.message || error, 'general');
+        return [data.url];
+      }
+
+      const data = await apiClient.postJson('/api/upload/images', {
+        images: base64Images,
+        folder: 'venuekart/venues'
+      });
+
+      if (!data || !Array.isArray(data.images)) {
+        const originalError = (data && (data.error || data.message)) || 'Failed to upload images';
+        const userFriendlyMessage = getUserFriendlyError(originalError, 'general');
         throw new Error(userFriendlyMessage);
       }
-    }
 
-    return uploadedUrls;
+      return data.images.map((i) => i.url).filter(Boolean);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      const userFriendlyMessage = getUserFriendlyError(error.message || error, 'general');
+      throw new Error(userFriendlyMessage);
+    }
   }
 
   async getVenues(filters = {}) {
@@ -106,14 +133,7 @@ class VenueService {
       }
 
       const url = `${API_BASE}?${queryParams.toString()}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        const userFriendlyMessage = getUserFriendlyError('Failed to fetch venues', 'general');
-        throw new Error(userFriendlyMessage);
-      }
-
-      const data = await response.json();
+      const data = await apiClient.getJson(url);
 
       // Handle both old and new API response formats
       if (data.venues && data.pagination) {
@@ -148,14 +168,7 @@ class VenueService {
 
   async getVenueById(id) {
     try {
-      const response = await fetch(`${API_BASE}/${id}`);
-
-      if (!response.ok) {
-        const userFriendlyMessage = getUserFriendlyError('Failed to fetch venue', 'general');
-        throw new Error(userFriendlyMessage);
-      }
-
-      return await response.json();
+      return await apiClient.getJson(`${API_BASE}/${id}`);
     } catch (error) {
       console.error('Error fetching venue:', error);
       const userFriendlyMessage = getUserFriendlyError(error.message || error, 'general');
@@ -214,14 +227,8 @@ class VenueService {
 
   async getFilterOptions() {
     try {
-      const response = await fetch(`${API_BASE}/filter-options`);
-
-      if (!response.ok) {
-        const userFriendlyMessage = getUserFriendlyError('Failed to fetch filter options', 'general');
-        throw new Error(userFriendlyMessage);
-      }
-
-      return await response.json();
+      // Use apiClient so production honors VITE_BACKEND_URL and dev uses same-origin proxy
+      return await apiClient.getJson(`${API_BASE}/filter-options`);
     } catch (error) {
       console.error('Error fetching filter options:', error);
       const userFriendlyMessage = getUserFriendlyError(error.message || error, 'general');

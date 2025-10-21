@@ -1,3 +1,5 @@
+import apiClient from '../lib/apiClient.js';
+
 class NotificationService {
   constructor() {
     this.listeners = [];
@@ -61,15 +63,8 @@ class NotificationService {
       const token = localStorage.getItem('accessToken');
       if (!token) return;
 
-      const response = await fetch('/api/bookings/customer/notification-count', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const data = await apiClient.getJson('/api/bookings/customer/notification-count');
+      if (data) {
         this.notify({
           type: 'count_update',
           count: data.unreadCount || 0
@@ -91,15 +86,9 @@ class NotificationService {
       const token = localStorage.getItem('accessToken');
       if (!token) return [];
 
-      const response = await fetch('/api/bookings/customer/notifications', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const notifications = await apiClient.getJson('/api/bookings/customer/notifications');
 
-      if (response.ok) {
-        const notifications = await response.json();
+      if (notifications) {
         this.notify({
           type: 'notifications_update',
           notifications: notifications || []

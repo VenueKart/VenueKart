@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+
 import { Button } from '@/components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserFriendlyError } from '../lib/errorMessages';
+import { motion } from 'framer-motion';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
 
 export default function VerifyOTP() {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -11,7 +18,7 @@ export default function VerifyOTP() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
+  const [timeLeft, setTimeLeft] = useState(60);
   const { verifyOTP, resendOTP } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,7 +48,6 @@ export default function VerifyOTP() {
   };
 
   const handleOtpChange = (index, value) => {
-    // Only allow digits
     if (!/^\d*$/.test(value)) return;
 
     const newOtp = [...otp];
@@ -49,18 +55,15 @@ export default function VerifyOTP() {
     setOtp(newOtp);
     setError('');
 
-    // Auto-focus next input
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
   };
 
   const handleKeyDown = (index, e) => {
-    // Handle backspace
     if (e.key === 'Backspace' && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
-    // Handle paste
     if (e.key === 'v' && e.ctrlKey) {
       e.preventDefault();
       navigator.clipboard.readText().then(text => {
@@ -105,8 +108,8 @@ export default function VerifyOTP() {
 
     try {
       await resendOTP(email);
-      setTimeLeft(300); // Reset timer
-      setOtp(['', '', '', '', '', '']); // Clear OTP input
+      setTimeLeft(60);
+      setOtp(['', '', '', '', '', '']);
       setSuccess('New verification code sent!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -119,26 +122,55 @@ export default function VerifyOTP() {
   return (
     <div className="h-screen bg-gradient-to-br from-venue-lavender/20 to-venue-purple/10 flex items-center justify-center px-4 overflow-hidden">
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
         className="max-w-md w-full"
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        transition={transition}
       >
-        {/* Background Card */}
         <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-8 border border-white/20">
-          {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-semibold text-venue-dark mb-3">Verify OTP</h1>
-            <p className="text-gray-600 text-sm leading-relaxed">
-              Enter the 6-digit code sent to your mobile
-            </p>
+            <motion.h1
+              className="text-2xl font-semibold text-venue-dark mb-3"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={transition}
+            >
+              Verify OTP
+            </motion.h1>
+            <motion.p
+              className="text-gray-600 text-sm leading-relaxed"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ ...transition, delay: 0.05 }}
+            >
+              Enter the 6-digit code sent to your email
+            </motion.p>
+            <motion.div
+              className="mt-2 flex justify-center"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ ...transition, delay: 0.1 }}
+            >
+              <span className="inline-flex items-center rounded-full bg-venue-purple/10 text-venue-purple border border-venue-purple/20 px-3 py-1 text-xs font-medium">
+                {email}
+              </span>
+            </motion.div>
           </div>
 
-          {/* OTP Input */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="flex justify-center gap-3 mb-6">
+            <motion.div
+              className="flex justify-center gap-3 mb-6"
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={transition}
+            >
               {otp.map((digit, index) => (
-                <motion.input
+                <input
                   key={index}
                   ref={el => inputRefs.current[index] = el}
                   type="text"
@@ -147,37 +179,35 @@ export default function VerifyOTP() {
                   value={digit}
                   onChange={(e) => handleOtpChange(index, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(index, e)}
-                  className="w-12 h-14 text-center text-xl font-semibold rounded-xl border-2 border-gray-200 focus:border-venue-purple focus:ring-2 focus:ring-venue-purple/20 focus:outline-none transition-all duration-200 bg-white/70"
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: index * 0.1 }}
+                  className="w-12 h-14 text-center text-xl font-semibold rounded-xl border-2 border-gray-200 focus:border-transparent focus:ring-2 focus:ring-venue-purple/20 focus:outline-none transition-all duration-200 bg-white/70"
                 />
               ))}
-            </div>
+            </motion.div>
 
-            {/* Success Message */}
             {success && (
               <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
                 className="text-center text-green-600 text-sm bg-green-50 py-2 px-4 rounded-lg border border-green-200"
+                variants={fadeUp}
+                initial="hidden"
+                animate="visible"
+                transition={transition}
               >
                 {success}
               </motion.div>
             )}
 
-            {/* Error Message */}
             {error && (
               <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
                 className="text-center text-red-600 text-sm bg-red-50 py-2 px-4 rounded-lg border border-red-200"
+                variants={fadeUp}
+                initial="hidden"
+                animate="visible"
+                transition={transition}
               >
                 {error}
               </motion.div>
             )}
 
-            {/* Verify Button */}
             <Button
               type="submit"
               disabled={loading || otp.join('').length !== 6}
@@ -193,7 +223,6 @@ export default function VerifyOTP() {
               )}
             </Button>
 
-            {/* Resend Code */}
             <div className="text-center">
               <p className="text-gray-600 text-sm mb-2">
                 Didn't receive the code?

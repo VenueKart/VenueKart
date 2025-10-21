@@ -139,7 +139,7 @@ export function AutocompleteInput({
         placeholder={placeholder}
         className={cn(
           "w-full transition-all duration-200",
-          isOpen && "ring-2 ring-venue-indigo/20 border-venue-indigo",
+          isOpen && "ring-2 ring-venue-indigo/20",
           className
         )}
         disabled={disabled}

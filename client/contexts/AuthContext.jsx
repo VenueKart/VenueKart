@@ -31,8 +31,8 @@ export const AuthProvider = ({ children }) => {
       if (userData) {
         setUser(userData);
       }
-    } catch (error) {
-      console.error('Auth initialization error:', error);
+    } catch (_error) {
+      // Silently ignore auth initialization errors; UI will treat as logged out
     } finally {
       setIsLoading(false);
     }

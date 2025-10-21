@@ -76,7 +76,7 @@ export default function PrivacyPolicy() {
           <CardContent>
             <p className="text-gray-600 leading-relaxed">
               This Privacy Policy ("Policy") governs the collection, use, disclosure, and protection of personal 
-              information by <span className="font-semibold">Virtues 7 Events Pvt. Ltd.</span> ("Company," "we," "our," or "us") in connection with the 
+              information by <span className="font-semibold">Virtues Seven Events Pvt. Ltd.</span> ("Company," "we," "our," or "us") in connection with the 
               use of its digital platform, <span className="font-semibold text-venue-indigo">VenueKart</span>, including its website, mobile application, and associated services 
               (collectively, the "Platform").
             </p>

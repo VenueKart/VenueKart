@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import apiClient from '../lib/apiClient.js';
 import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft,
@@ -20,6 +21,13 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
 
 export default function AccountSettings() {
   const { user, updateProfile } = useAuth();
@@ -62,7 +70,6 @@ export default function AccountSettings() {
       ...prev,
       [field]: value
     }));
-    // Clear errors when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -76,7 +83,6 @@ export default function AccountSettings() {
       ...prev,
       [field]: value
     }));
-    // Clear errors when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -137,27 +143,14 @@ export default function AccountSettings() {
     try {
       setLoading(true);
       
-      const response = await fetch('/api/auth/update-profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        },
-        body: JSON.stringify({
-          ...profileData,
-          mobileNumber: profileData.phone
-        })
+      await apiClient.putJson('/api/auth/update-profile', {
+        ...profileData,
+        mobileNumber: profileData.phone
       });
-
-      if (!response.ok) {
-        const userFriendlyMessage = getUserFriendlyError('Failed to update profile', 'general');
-        throw new Error(userFriendlyMessage);
-      }
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       
-      // Update user context if available
       if (updateProfile) {
         updateProfile(profileData);
       }
@@ -179,24 +172,11 @@ export default function AccountSettings() {
     try {
       setLoading(true);
       
-      const response = await fetch('/api/auth/change-password', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        },
-        body: JSON.stringify({
-          currentPassword: passwordData.currentPassword,
-          newPassword: passwordData.newPassword
-        })
+      await apiClient.putJson('/api/auth/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to change password');
-      }
-
-      // Clear password form
       setPasswordData({
         currentPassword: '',
         newPassword: '',
@@ -218,7 +198,13 @@ export default function AccountSettings() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
+        <motion.div
+          className="mb-8"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          transition={transition}
+        >
           <Button asChild variant="ghost" className="text-venue-indigo hover:text-venue-purple mb-4">
             <Link to="/">
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -234,11 +220,17 @@ export default function AccountSettings() {
               {user?.user_type === 'venue-owner' ? 'Venue Owner' : 'Customer'}
             </Badge>
           </div>
-        </div>
+        </motion.div>
 
         {/* Success Message */}
         {saveSuccess && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+          <motion.div
+            className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6"
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            transition={transition}
+          >
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <Shield className="h-5 w-5 text-green-400" />
@@ -249,19 +241,32 @@ export default function AccountSettings() {
                 </p>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* General Error */}
         {errors.general && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <motion.div
+            className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6"
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            transition={transition}
+          >
             <p className="text-sm text-red-800">{errors.general}</p>
-          </div>
+          </motion.div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Profile Information */}
-          <div className="lg:col-span-2">
+          <motion.div
+            className="lg:col-span-2"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
+          >
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -483,10 +488,17 @@ export default function AccountSettings() {
                 </form>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
 
           {/* Account Summary */}
-          <div className="space-y-6">
+          <motion.div
+            className="space-y-6"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ ...transition, delay: 0.05 }}
+          >
             <Card>
               <CardHeader>
                 <CardTitle>Account Summary</CardTitle>
@@ -563,7 +575,7 @@ export default function AccountSettings() {
                 </Button>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>

@@ -10,7 +10,8 @@ export function authenticateToken(req, res, next) {
 
   const decoded = verifyAccessToken(token);
   if (!decoded) {
-    return res.status(403).json({ error: 'Invalid or expired token' });
+    // Use 401 so clients can trigger refresh token flow automatically
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
   req.user = decoded;

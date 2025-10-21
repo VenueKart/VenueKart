@@ -1,6 +1,8 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
 import { authenticateToken } from '../middleware/auth.js';
+import Favorite from '../models/Favorite.js';
+import Venue from '../models/Venue.js';
+import User from '../models/User.js';
 
 const router = Router();
 
@@ -8,39 +10,25 @@ const router = Router();
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const favs = await Favorite.find({ user_id: userId }).sort({ created_at: -1 }).lean();
+    const venueIds = favs.map(f => f.venue_id);
+    const venues = await Venue.find({ _id: { $in: venueIds }, status: 'active' }).lean();
 
-    let favorites;
-    try {
-      [favorites] = await pool.execute(`
-        SELECT v.*, u.name as owner_name, u.mobile_number as owner_phone,
-               GROUP_CONCAT(DISTINCT vi.image_url) as images,
-               GROUP_CONCAT(DISTINCT vf.facility_name) as facilities
-        FROM favorites f
-        JOIN venues v ON f.venue_id = v.id
-        LEFT JOIN users u ON v.owner_id = u.id
-        LEFT JOIN venue_images vi ON v.id = vi.venue_id
-        LEFT JOIN venue_facilities vf ON v.id = vf.venue_id
-        WHERE f.user_id = ? AND v.status = 'active'
-        GROUP BY v.id
-        ORDER BY f.created_at DESC
-      `, [userId]);
-    } catch (tableError) {
-      // If tables don't exist, return empty array
-      console.log('Favorites tables not ready, returning empty array');
-      return res.json([]);
-    }
+    const venueMap = new Map(venues.map(v => [v._id.toString(), v]));
+    const result = venueIds
+      .map(id => venueMap.get(id.toString()))
+      .filter(Boolean)
+      .map(v => ({
+        ...v,
+        images: (v.images || []).map(i => i.url),
+        facilities: v.facilities || [],
+        price: v.price_per_day,
+        priceMin: v.price_min ?? null,
+        priceMax: v.price_max ?? null,
+        isFavorite: true
+      }));
 
-    const formattedFavorites = favorites.map(venue => ({
-      ...venue,
-      images: venue.images ? venue.images.split(',') : [],
-      facilities: venue.facilities ? venue.facilities.split(',') : [],
-      price: parseFloat(venue.price_per_day),
-      priceMin: venue.price_min ? parseFloat(venue.price_min) : null,
-      priceMax: venue.price_max ? parseFloat(venue.price_max) : null,
-      isFavorite: true // Since these are from favorites table
-    }));
-
-    res.json(formattedFavorites);
+    res.json(result);
   } catch (error) {
     console.error('Error fetching favorites:', error);
     res.status(500).json({ error: 'Failed to fetch favorites' });
@@ -53,23 +41,10 @@ router.post('/:venueId', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { venueId } = req.params;
 
-    // Check if venue exists
-    const [venues] = await pool.execute(
-      'SELECT id FROM venues WHERE id = ? AND status = "active"',
-      [venueId]
-    );
+    const venue = await Venue.findOne({ _id: venueId, status: 'active' }).lean();
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
 
-    if (venues.length === 0) {
-      return res.status(404).json({ error: 'Venue not found' });
-    }
-
-    // Add to favorites (ON DUPLICATE KEY UPDATE handles if already exists)
-    await pool.execute(`
-      INSERT INTO favorites (user_id, venue_id) 
-      VALUES (?, ?) 
-      ON DUPLICATE KEY UPDATE created_at = CURRENT_TIMESTAMP
-    `, [userId, venueId]);
-
+    await Favorite.updateOne({ user_id: userId, venue_id: venueId }, { $set: { user_id: userId, venue_id: venueId } }, { upsert: true });
     res.json({ message: 'Venue added to favorites', isFavorite: true });
   } catch (error) {
     console.error('Error adding to favorites:', error);
@@ -82,12 +57,7 @@ router.delete('/:venueId', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const { venueId } = req.params;
-
-    await pool.execute(
-      'DELETE FROM favorites WHERE user_id = ? AND venue_id = ?',
-      [userId, venueId]
-    );
-
+    await Favorite.deleteOne({ user_id: userId, venue_id: venueId });
     res.json({ message: 'Venue removed from favorites', isFavorite: false });
   } catch (error) {
     console.error('Error removing from favorites:', error);
@@ -100,13 +70,8 @@ router.get('/check/:venueId', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const { venueId } = req.params;
-
-    const [favorites] = await pool.execute(
-      'SELECT id FROM favorites WHERE user_id = ? AND venue_id = ?',
-      [userId, venueId]
-    );
-
-    res.json({ isFavorite: favorites.length > 0 });
+    const exists = await Favorite.exists({ user_id: userId, venue_id: venueId });
+    res.json({ isFavorite: Boolean(exists) });
   } catch (error) {
     console.error('Error checking favorite status:', error);
     res.status(500).json({ error: 'Failed to check favorite status' });
@@ -117,21 +82,8 @@ router.get('/check/:venueId', authenticateToken, async (req, res) => {
 router.get('/ids', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-
-    let favorites;
-    try {
-      [favorites] = await pool.execute(
-        'SELECT venue_id FROM favorites WHERE user_id = ?',
-        [userId]
-      );
-    } catch (tableError) {
-      // If favorites table doesn't exist, return empty array
-      console.log('Favorites table not ready, returning empty array');
-      return res.json([]);
-    }
-
-    const favoriteIds = favorites.map(f => f.venue_id);
-    res.json(favoriteIds);
+    const favs = await Favorite.find({ user_id: userId }, { venue_id: 1 }).lean();
+    res.json(favs.map(f => f.venue_id.toString()));
   } catch (error) {
     console.error('Error fetching favorite IDs:', error);
     res.status(500).json({ error: 'Failed to fetch favorite IDs' });

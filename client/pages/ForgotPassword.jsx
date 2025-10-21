@@ -8,13 +8,20 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '../contexts/AuthContext';
 import { AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 import { getUserFriendlyError } from '../lib/errorMessages';
+import { motion } from 'framer-motion';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1); // 1: email, 2: otp, 3: password
+  const [currentStep, setCurrentStep] = useState(1);
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,7 +37,7 @@ export default function ForgotPassword() {
     try {
       await forgotPassword(email);
       setSuccess(true);
-      setCurrentStep(2); // Move to OTP verification step
+      setCurrentStep(2);
     } catch (error) {
       console.error('Forgot password error:', error);
       setError(getUserFriendlyError(error, 'password-reset'));
@@ -51,11 +58,9 @@ export default function ForgotPassword() {
     }
 
     try {
-      // For OTP verification, we'll store the OTP and move to password step
-      // The actual verification will happen when password is reset
       setVerifiedOtp(otp);
-      setCurrentStep(3); // Move to password step
-      setSuccess(false); // Reset success state
+      setCurrentStep(3);
+      setSuccess(false);
       setError('');
     } catch (error) {
       console.error('OTP verification error:', error);
@@ -85,7 +90,7 @@ export default function ForgotPassword() {
     try {
       await resetPassword(email, verifiedOtp, newPassword);
       setSuccess(true);
-      setCurrentStep(4); // Success step
+      setCurrentStep(4);
       setError('');
     } catch (error) {
       console.error('Reset password error:', error);
@@ -98,7 +103,13 @@ export default function ForgotPassword() {
   if (currentStep === 4 && success) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center py-8 px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-md">
+        <motion.div
+          className="w-full max-w-md"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          transition={transition}
+        >
           <Card className="shadow-2xl border-0">
             <CardHeader className="space-y-2 text-center pb-6">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -127,14 +138,20 @@ export default function ForgotPassword() {
               </div>
             </CardContent>
           </Card>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-8 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md">
+      <motion.div
+        className="w-full max-w-md"
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        transition={transition}
+      >
         <Card className="shadow-2xl border-0">
           <CardHeader className="space-y-2 text-center pb-6">
             <CardTitle className="text-2xl font-bold text-venue-dark">
@@ -284,7 +301,7 @@ export default function ForgotPassword() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { scrollToTop } from '@/lib/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,29 +29,26 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-// API service functions
+import apiClient from '../lib/apiClient.js';
+
+const transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 }
+};
+
 const getAuthHeader = () => {
   const token = localStorage.getItem('accessToken');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
 
 const apiCall = async (url, options = {}) => {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-      ...options.headers
+  if (!options.method || options.method.toUpperCase() === 'GET') {
+    return apiClient.getJson(url, options);
     }
-  });
-
-  if (!response.ok) {
-    const userFriendlyMessage = getUserFriendlyError(`API call failed: ${response.statusText}`, 'general');
-    throw new Error(userFriendlyMessage);
-  }
-
-  return response.json();
+  return apiClient.callJson(url, options);
 };
 
 export default function VenueDetail() {
@@ -59,13 +57,11 @@ export default function VenueDetail() {
   const { user, isLoggedIn } = useAuth();
   const { toggleFavorite, isFavorite } = useFavorites();
   
-  // Venue and gallery states
   const [venue, setVenue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedImage, setSelectedImage] = useState(0);
   
-  // Booking form states
   const [selectedDate, setSelectedDate] = useState(null);
   const [bookingForm, setBookingForm] = useState({
     fullName: '',
@@ -79,6 +75,7 @@ export default function VenueDetail() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showFloatingMessage, setShowFloatingMessage] = useState(false);
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
 
 
   useEffect(() => {
@@ -89,7 +86,8 @@ export default function VenueDetail() {
         if (venueData.images && typeof venueData.images === 'string') {
           venueData.images = JSON.parse(venueData.images);
         }
-        setVenue(venueData);
+        const normalized = { ...venueData, id: venueData.id || venueData._id };
+        setVenue(normalized);
       } catch (err) {
         console.error('Error fetching venue details:', err);
         const userFriendlyMessage = getUserFriendlyError(err.message || err, 'general');
@@ -104,7 +102,6 @@ export default function VenueDetail() {
     }
   }, [id]);
 
-  // Auto-populate user info if logged in
   useEffect(() => {
     if (isLoggedIn && user) {
       setBookingForm(prev => ({
@@ -157,7 +154,6 @@ export default function VenueDetail() {
     setIsSubmitting(true);
 
     try {
-      // Prepare inquiry data
       const inquiryData = {
         venue_id: venue.id,
         venue_name: venue.name,
@@ -171,7 +167,6 @@ export default function VenueDetail() {
         }
       };
 
-      // Send inquiry to API
       try {
         await apiCall('/api/bookings/inquiry', {
           method: 'POST',
@@ -181,10 +176,8 @@ export default function VenueDetail() {
         console.log('API not available, simulating inquiry submission');
       }
 
-      // Show floating success message
       setShowFloatingMessage(true);
 
-      // Reset form
       setShowBookingForm(false);
       setSelectedDate(null);
       setBookingForm(prev => ({
@@ -194,7 +187,6 @@ export default function VenueDetail() {
         specialRequests: ''
       }));
 
-      // Redirect to home after a short delay (let the user see the success message)
       setTimeout(() => {
         scrollToTop();
         navigate('/');
@@ -260,24 +252,35 @@ export default function VenueDetail() {
 
       <div className="w-full px-4 py-8">
         {/* Back Button */}
-        <div className="max-w-7xl mx-auto mb-6">
-          <Button asChild variant="ghost" className="text-venue-indigo hover:text-venue-purple" onClick={scrollToTop}>
+        <motion.div
+          className="max-w-7xl mx-auto mb-6"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          transition={transition}
+        >
+          <Button asChild variant="ghost" className="text-venue-indigo" onClick={scrollToTop}>
             <Link to="/venues">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Venues
             </Link>
           </Button>
-        </div>
+        </motion.div>
 
         {/* Full Width Image Gallery */}
-        <div className="relative w-full h-96 md:h-[500px] mb-8 overflow-hidden">
+        <motion.div
+          className="relative w-full h-96 md:h-[500px] mb-8 overflow-hidden"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          transition={transition}
+        >
           <img
             src={venueImages[selectedImage]}
             alt={venue.name}
             className="w-full h-full object-cover"
           />
           
-          {/* Image Navigation */}
           {venueImages.length > 1 && (
             <>
               <button
@@ -295,7 +298,6 @@ export default function VenueDetail() {
             </>
           )}
 
-          {/* Image Indicators */}
           {venueImages.length > 1 && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-2">
               {venueImages.map((_, index) => (
@@ -310,7 +312,6 @@ export default function VenueDetail() {
             </div>
           )}
 
-          {/* Action Buttons Overlay */}
           <div className="absolute top-4 right-4 flex gap-2">
             <Button
               size="icon"
@@ -325,42 +326,59 @@ export default function VenueDetail() {
             </Button>
           </div>
 
-          {/* Venue Type Badge */}
           <div className="absolute top-4 left-4">
             <Badge className="bg-venue-indigo text-white text-lg px-4 py-2">
               {venue.type || 'Venue'}
             </Badge>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Thumbnail Gallery */}
         {venueImages.length > 1 && (
-          <div className="max-w-7xl mx-auto mb-8">
+          <motion.div
+            className="max-w-7xl mx-auto mb-8"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            transition={transition}
+          >
             <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
               {venueImages.map((image, index) => (
-                <button
+                <motion.button
                   key={index}
                   onClick={() => setSelectedImage(index)}
                   className={`aspect-video rounded-lg overflow-hidden border-2 transition-all ${
                     selectedImage === index ? 'border-venue-indigo' : 'border-gray-200 hover:border-gray-300'
                   }`}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ ...transition, delay: (index % 8) * 0.03 }}
                 >
                   <img
                     src={image}
                     alt={`${venue.name} ${index + 1}`}
                     className="w-full h-full object-cover"
                   />
-                </button>
+                </motion.button>
               ))}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Main Content */}
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Column - Venue Details */}
-            <div className="lg:col-span-2 space-y-6">
+            <motion.div
+              className="lg:col-span-2 space-y-6"
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.2 }}
+              transition={transition}
+            >
               {/* Venue Header */}
               <Card>
                 <CardContent className="p-6">
@@ -404,22 +422,35 @@ export default function VenueDetail() {
                     <h2 className="text-2xl font-semibold mb-4">Facilities & Amenities</h2>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {venue.facilities.map((facility, index) => (
-                        <div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                        <motion.div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg"
+                          variants={fadeUp}
+                          initial="hidden"
+                          whileInView="visible"
+                          viewport={{ once: true, amount: 0.2 }}
+                          transition={{ ...transition, delay: (index % 6) * 0.04 }}
+                        >
                           {facility.toLowerCase().includes('wifi') && <Wifi className="h-5 w-5 mr-2 text-venue-indigo" />}
                           {facility.toLowerCase().includes('parking') && <Car className="h-5 w-5 mr-2 text-venue-indigo" />}
                           {facility.toLowerCase().includes('catering') && <Coffee className="h-5 w-5 mr-2 text-venue-indigo" />}
                           <span className="font-medium">{facility}</span>
-                        </div>
+                        </motion.div>
                       ))}
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-            </div>
+            </motion.div>
 
             {/* Right Column - Price Breakdown & Booking */}
-            <div className="space-y-6">
+            <motion.div
+              className="space-y-6"
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ ...transition, delay: 0.05 }}
+            >
               {/* Price Breakdown Card */}
               <Card>
                 <CardHeader>
@@ -467,160 +498,199 @@ export default function VenueDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {!showBookingForm ? (
-                    <div className="space-y-4">
-                      <div className="text-center p-6 bg-gray-50 rounded-lg">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-2">Ready to book?</h3>
-                        <p className="text-gray-600 mb-4">Select your event date and fill in your details to send an inquiry.</p>
-                        <Button
-                          onClick={() => setShowBookingForm(true)}
-                          className="w-full bg-venue-indigo hover:bg-venue-purple text-white"
-                          size="lg"
-                        >
-                          Start Booking Process
-                        </Button>
-                      </div>
+                  <div className="space-y-4">
+                    <div className="text-center p-6 bg-gray-50 rounded-lg">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">Ready to book?</h3>
+                      <p className="text-gray-600 mb-4">Select your event date and fill in your details to send an inquiry.</p>
+                      <Button
+                        onClick={() => {
+                          if (!isLoggedIn) {
+                            setShowLoginDialog(true);
+                            return;
+                          }
+                          setShowBookingForm(true);
+                        }}
+                        className="w-full bg-venue-indigo hover:bg-venue-purple text-white"
+                        size="lg"
+                      >
+                        Start Booking Process
+                      </Button>
                     </div>
-                  ) : (
-                    <form onSubmit={handleInquireSubmit} className="space-y-6">
-                      {/* Calendar */}
-                      <div>
-                        <Label className="text-base font-semibold">Select Event Date</Label>
-                        <div className="mt-2 border rounded-lg p-2">
-                          <Calendar
-                            mode="single"
-                            selected={selectedDate}
-                            onSelect={setSelectedDate}
-                            disabled={(date) => date < new Date()}
-                            className="w-full"
-                          />
-                        </div>
-                        {selectedDate && (
-                          <p className="text-sm text-venue-indigo mt-2 font-medium">
-                            Selected: {selectedDate.toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
+                  </div>
 
-                      {/* User Details Form */}
-                      <div className="space-y-4">
+                  <Dialog open={showBookingForm} onOpenChange={setShowBookingForm}>
+                    <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-5xl sm:rounded-2xl p-4 sm:p-6 max-h-[85vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Start Booking</DialogTitle>
+                        <DialogDescription>
+                          Provide your details to send an inquiry to {venue?.name}.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <form onSubmit={handleInquireSubmit} className="space-y-6">
+                        {/* Calendar + Details */}
                         <div>
-                          <Label htmlFor="fullName">Full Name*</Label>
-                          <Input
-                            id="fullName"
-                            name="fullName"
-                            value={bookingForm.fullName}
-                            onChange={handleBookingFormChange}
-                            required
-                            className="mt-1"
-                          />
+                          <div className="flex flex-col md:flex-row gap-2 items-start">
+                            {/* Left: Calendar */}
+                            <div className="w-full md:w-[296px]">
+                              <Label className="text-base font-semibold">Select Event Date</Label>
+                              <div className="mt-2 w-full overflow-x-auto border rounded-lg p-2">
+                                <Calendar
+                                  mode="single"
+                                  selected={selectedDate}
+                                  onSelect={setSelectedDate}
+                                  disabled={(date) => date < new Date()}
+                                  className="w-auto" classNames={{ table: "w-auto" }}
+                                />
+                              </div>
+                              {selectedDate && (
+                                <p className="text-sm text-venue-indigo mt-2 font-medium">
+                                  Selected: {selectedDate.toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Right: Details */}
+                            <div className="flex-1 w-full">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <Label htmlFor="fullName">Full Name*</Label>
+                                  <Input
+                                    id="fullName"
+                                    name="fullName"
+                                    value={bookingForm.fullName}
+                                    onChange={handleBookingFormChange}
+                                    placeholder="Enter your full name"
+                                    required
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="email">Email*</Label>
+                                  <Input
+                                    id="email"
+                                    name="email"
+                                    type="email"
+                                    value={bookingForm.email}
+                                    onChange={handleBookingFormChange}
+                                    placeholder="name@example.com"
+                                    required
+                                    className="mt-1"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                <div>
+                                  <Label htmlFor="phone">Phone Number*</Label>
+                                  <Input
+                                    id="phone"
+                                    name="phone"
+                                    type="tel"
+                                    value={bookingForm.phone}
+                                    onChange={handleBookingFormChange}
+                                    placeholder="10-digit mobile number"
+                                    required
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="eventType">Event Type*</Label>
+                                  <Input
+                                    id="eventType"
+                                    name="eventType"
+                                    value={bookingForm.eventType}
+                                    onChange={handleBookingFormChange}
+                                    placeholder="e.g., Wedding Reception, Conference"
+                                    required
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="guestCount">Expected Guest Count*</Label>
+                                  <Input
+                                    id="guestCount"
+                                    name="guestCount"
+                                    type="number"
+                                    value={bookingForm.guestCount}
+                                    onChange={handleBookingFormChange}
+                                    placeholder="Expected number of guests"
+                                    required
+                                    className="mt-1"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="mt-4">
+                                <Label htmlFor="specialRequests">Special Requests</Label>
+                                <Textarea
+                                  id="specialRequests"
+                                  name="specialRequests"
+                                  value={bookingForm.specialRequests}
+                                  onChange={handleBookingFormChange}
+                                  placeholder="Any special requests or details (optional)"
+                                  rows={4}
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
+                          </div>
                         </div>
 
-                        <div>
-                          <Label htmlFor="email">Email*</Label>
-                          <Input
-                            id="email"
-                            name="email"
-                            type="email"
-                            value={bookingForm.email}
-                            onChange={handleBookingFormChange}
-                            required
-                            className="mt-1"
-                          />
-                        </div>
+                        <DialogFooter className="gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowBookingForm(false)}
+                            className="w-full sm:w-auto"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="submit"
+                            disabled={isSubmitting || !selectedDate}
+                            className="bg-venue-indigo hover:bg-venue-purple text-white w-full sm:w-auto"
+                          >
+                            {isSubmitting ? 'Sending Inquiry...' : 'Send Inquiry'}
+                          </Button>
+                        </DialogFooter>
 
-                        <div>
-                          <Label htmlFor="phone">Phone Number*</Label>
-                          <Input
-                            id="phone"
-                            name="phone"
-                            type="tel"
-                            value={bookingForm.phone}
-                            onChange={handleBookingFormChange}
-                            required
-                            className="mt-1"
-                          />
+                        <div className="text-xs text-gray-500 text-center">
+                          Your inquiry will be sent to the venue owner and our team. We'll get back to you within 24 hours.
                         </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
 
-                        <div>
-                          <Label htmlFor="eventType">Event Type*</Label>
-                          <Input
-                            id="eventType"
-                            name="eventType"
-                            value={bookingForm.eventType}
-                            onChange={handleBookingFormChange}
-                            placeholder="e.g., Wedding, Conference, Birthday"
-                            required
-                            className="mt-1"
-                          />
-                        </div>
-
-                        <div>
-                          <Label htmlFor="guestCount">Expected Guest Count*</Label>
-                          <Input
-                            id="guestCount"
-                            name="guestCount"
-                            type="number"
-                            value={bookingForm.guestCount}
-                            onChange={handleBookingFormChange}
-                            placeholder="Number of guests"
-                            required
-                            className="mt-1"
-                          />
-                        </div>
-
-                        <div>
-                          <Label htmlFor="specialRequests">Special Requests</Label>
-                          <Textarea
-                            id="specialRequests"
-                            name="specialRequests"
-                            value={bookingForm.specialRequests}
-                            onChange={handleBookingFormChange}
-                            placeholder="Any special requirements or questions..."
-                            rows={3}
-                            className="mt-1"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Submit Buttons */}
-                      <div className="space-y-3">
-                        <Button
-                          type="submit"
-                          disabled={isSubmitting || !selectedDate}
-                          className="w-full bg-venue-indigo hover:bg-venue-purple text-white"
-                          size="lg"
-                        >
-                          {isSubmitting ? 'Sending Inquiry...' : 'Send Inquiry'}
+                  <Dialog open={showLoginDialog} onOpenChange={setShowLoginDialog}>
+                    <DialogContent className="sm:max-w-md sm:rounded-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Sign in required</DialogTitle>
+                        <DialogDescription>
+                          Without logging in, you cannot start the booking process. Please sign in to continue.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setShowLoginDialog(false)}>
+                          Close
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setShowBookingForm(false)}
-                          className="w-full"
-                        >
-                          Cancel
+                        <Button asChild className="bg-venue-indigo hover:bg-venue-purple text-white">
+                          <Link to="/signin">Go to Sign In</Link>
                         </Button>
-                      </div>
-
-                      <div className="text-xs text-gray-500 text-center">
-                        Your inquiry will be sent to the venue owner and our team. We'll get back to you within 24 hours.
-                      </div>
-                    </form>
-                  )}
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </CardContent>
               </Card>
-            </div>
+            </motion.div>
           </div>
         </div>
       </div>
 
-      {/* Floating success message */}
       <FloatingMessage
         isVisible={showFloatingMessage}
         onClose={() => {
           setShowFloatingMessage(false);
-          // If user closes manually, still redirect to home
           setTimeout(() => {
             scrollToTop();
             navigate('/');

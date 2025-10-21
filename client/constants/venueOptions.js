@@ -12,8 +12,11 @@ export const LOCALITY_AREAS = [
 export const PUNE_AREAS = LOCALITY_AREAS;
 
 export const VENUE_TYPES = [
+  'RWA',
+  'Malls',
+  'IT Parks',
   'Banquet halls',
-  'Hotels & resorts', 
+  'Hotels & resorts',
   'Lawns/gardens',
   'Farmhouses',
   'Restaurants & cafes',

@@ -239,7 +239,7 @@ const RazorpayPayment = ({ booking, onPaymentSuccess, onPaymentFailure }) => {
         
         {booking.payment_status === 'pending' && (
           <Button
-            onClick={() => setShowPaymentDialog(true)}
+            onClick={initatePayment}
             disabled={loading}
             className="bg-venue-indigo hover:bg-venue-purple"
             size="sm"

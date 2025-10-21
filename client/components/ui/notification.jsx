@@ -39,14 +39,17 @@ export const NotificationContainer = ({ notifications, removeNotification }) => 
   );
 };
 
-export const Notification = ({ notification, onClose }) => {
-  const { type, title, message, duration = 5000 } = notification;
+export const Notification = ({ notification, onClose, type: propType, title: propTitle, message: propMessage, duration: propDuration }) => {
+  const notif = notification || (propType || propTitle || propMessage ? { type: propType, title: propTitle, message: propMessage, duration: propDuration } : null);
+  if (!notif) return null;
+
+  const { type, title, message, duration = 5000 } = notif;
   const config = notificationTypes[type] || notificationTypes.info;
   const Icon = config.icon;
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      onClose();
+      if (typeof onClose === 'function') onClose();
     }, duration);
 
     return () => clearTimeout(timer);
@@ -66,7 +69,7 @@ export const Notification = ({ notification, onClose }) => {
         <p className="text-sm opacity-90">{message}</p>
       </div>
       <button
-        onClick={onClose}
+        onClick={() => { if (typeof onClose === 'function') onClose(); }}
         className="ml-3 flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
       >
         <X className="h-4 w-4" />
